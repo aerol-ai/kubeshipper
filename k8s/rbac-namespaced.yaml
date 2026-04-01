@@ -1,0 +1,97 @@
+# =============================================================================
+# Namespace-scoped RBAC — use this instead of rbac.yaml when you want
+# kubeshipper to manage workloads only in specific namespaces.
+#
+# How it works:
+#   ClusterRole  + ClusterRoleBinding → access to ALL namespaces (rbac.yaml)
+#   Role         + RoleBinding        → access to ONE specific namespace (this file)
+#
+# To restrict kubeshipper to, say, "production" and "staging":
+#   1. Duplicate the Role + RoleBinding blocks below for each namespace.
+#   2. Set MANAGED_NAMESPACE env in deployment.yaml to the target namespace.
+#   3. kubectl apply -f k8s/rbac-namespaced.yaml
+#
+# Replace every occurrence of <NAMESPACE> with your target namespace name.
+# =============================================================================
+
+# -- ServiceAccount (only needed once; lives in kubeshipper's own namespace) --
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubeshipper
+  namespace: default          # namespace where kubeshipper itself runs
+
+---
+# =============================================================================
+# Example: grant access to namespace "production"
+# Duplicate this Role + RoleBinding pair for each additional namespace.
+# =============================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kubeshipper
+  namespace: production        # <-- change to your target namespace
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["services", "pods", "pods/log", "configmaps", "secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kubeshipper
+  namespace: production        # <-- same namespace as the Role above
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kubeshipper
+subjects:
+  - kind: ServiceAccount
+    name: kubeshipper
+    namespace: default         # namespace where the kubeshipper pod runs
+
+---
+# =============================================================================
+# Example: grant access to namespace "staging"
+# =============================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kubeshipper
+  namespace: staging
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["services", "pods", "pods/log", "configmaps", "secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kubeshipper
+  namespace: staging
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kubeshipper
+subjects:
+  - kind: ServiceAccount
+    name: kubeshipper
+    namespace: default

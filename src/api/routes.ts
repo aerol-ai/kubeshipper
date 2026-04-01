@@ -4,6 +4,7 @@ import { ServiceSpecSchema, PartialServiceSpecSchema } from "./validation";
 import { stateStore } from "../store/db";
 import * as k8s from "../kubernetes/adapter";
 import { streamLogs } from "../kubernetes/logs";
+import { MANAGED_NAMESPACES } from "../kubernetes/adapter";
 import { PassThrough } from "stream";
 
 export const servicesRouter = new Hono();
@@ -20,7 +21,16 @@ servicesRouter.post("/", async (c) => {
 
     const id = specResult.data.name;
     const spec = specResult.data;
-    
+
+    // Reject early if the requested namespace is not in the allowed list
+    const targetNs = spec.namespace ?? [...MANAGED_NAMESPACES][0];
+    if (!MANAGED_NAMESPACES.has(targetNs!)) {
+      return c.json({
+        error: "Namespace not allowed",
+        details: `"${targetNs}" is not in MANAGED_NAMESPACES. Allowed: ${[...MANAGED_NAMESPACES].join(", ")}`,
+      }, 400);
+    }
+
     // Asynchronous mode: Save to DB as PENDING
     stateStore.setService(id, spec, "PENDING");
     stateStore.logEvent(id, "Created", "Service deployment requested via API");
@@ -47,7 +57,7 @@ servicesRouter.get("/:id", async (c) => {
   }
 
   try {
-    const k8sStatus = await k8s.getServiceStatus(id);
+    const k8sStatus = await k8s.getServiceStatus(id, record.spec.namespace);
     return c.json({ 
       id: record.id, 
       spec: record.spec, 
@@ -99,7 +109,7 @@ servicesRouter.delete("/:id", async (c) => {
 
   try {
     stateStore.logEvent(id, "Deleting", "Tear down requested via API");
-    await k8s.deleteService(id);
+    await k8s.deleteService(id, stateStore.getService(id)!.spec.namespace);
     stateStore.deleteService(id);
     return c.json({ message: "Service deleted", id });
   } catch (err: any) {
@@ -117,7 +127,7 @@ servicesRouter.post("/:id/restart", async (c) => {
 
   try {
     stateStore.logEvent(id, "Restarting", "Manual rollout restart requested");
-    await k8s.restartService(id);
+    await k8s.restartService(id, stateStore.getService(id)!.spec.namespace);
     return c.json({ message: "Service rollout restarted", id });
   } catch (err: any) {
     return c.json({ error: "Restart failed", details: err.message }, 500);
@@ -145,11 +155,14 @@ servicesRouter.get("/:id/logs", async (c) => {
   }
 
   return honoStream(c, async (stream) => {
+    const record = stateStore.getService(id)!;
     const pt = new PassThrough();
     pt.on("data", (chunk) => stream.write(new Uint8Array(chunk)));
     pt.on("end", () => stream.close());
 
-    streamLogs("default", id, pt).catch((err) => {
+    // Use the first allowed namespace as fallback if spec has none
+    const fallbackNs = [...MANAGED_NAMESPACES][0]!;
+    streamLogs(record.spec.namespace ?? fallbackNs, id, pt).catch((err) => {
       pt.write(`\nError streaming logs: ${err.message}\n`);
       pt.end();
     });

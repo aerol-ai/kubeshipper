@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "kubeshipper.fullname" . }}-data
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubeshipper.labels" . | nindent 4 }}
+spec:
+  # ReadWriteOnce matches replicas: 1 and prevents accidental multi-pod access.
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.storage.size }}
+  {{- if .Values.storage.storageClass }}
+  storageClassName: {{ .Values.storage.storageClass }}
+  {{- end }}

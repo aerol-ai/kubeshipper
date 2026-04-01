@@ -1,0 +1,85 @@
+{{- if .Values.rbac.clusterWide }}
+# =============================================================================
+# Cluster-wide mode: kubeshipper can deploy workloads into ANY namespace.
+# =============================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kubeshipper.fullname" . }}
+  labels:
+    {{- include "kubeshipper.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["services", "pods", "pods/log", "configmaps", "secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kubeshipper.fullname" . }}
+  labels:
+    {{- include "kubeshipper.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "kubeshipper.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kubeshipper.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+
+{{- else }}
+# =============================================================================
+# Namespace-scoped mode: kubeshipper can only manage workloads in the
+# namespaces listed under rbac.managedNamespaces.
+# A Role + RoleBinding is created in each of those namespaces.
+# =============================================================================
+{{- range .Values.rbac.managedNamespaces }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kubeshipper.fullname" $ }}
+  namespace: {{ . }}
+  labels:
+    {{- include "kubeshipper.labels" $ | nindent 4 }}
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["services", "pods", "pods/log", "configmaps", "secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kubeshipper.fullname" $ }}
+  namespace: {{ . }}
+  labels:
+    {{- include "kubeshipper.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kubeshipper.fullname" $ }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kubeshipper.serviceAccountName" $ }}
+    namespace: {{ $.Release.Namespace }}
+{{- end }}
+{{- end }}

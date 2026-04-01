@@ -107,7 +107,7 @@ async function reconcileDrift() {
   for (const row of readyRows) {
     try {
       const spec = JSON.parse(row.spec_json);
-      const status = await k8s.getServiceStatus(row.id);
+      const status = await k8s.getServiceStatus(row.id, spec.namespace);
 
       // Simple drift check: if Deployment is completely missing from K8s but DB says READY
       if (!status.ready && status.reason === "Deployment not found") {

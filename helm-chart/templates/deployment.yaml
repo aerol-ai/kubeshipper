@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kubeshipper.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubeshipper.labels" . | nindent 4 }}
+spec:
+  # MUST be 1 — SQLite cannot handle concurrent multi-process writes.
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "kubeshipper.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kubeshipper.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "kubeshipper.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: kubeshipper
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "3000"
+            - name: DB_PATH
+              value: {{ .Values.storage.mountPath }}/kubeshipper.sqlite
+            - name: MANAGED_NAMESPACES
+              value: {{ .Values.rbac.managedNamespaces | join "," | quote }}
+            {{- if or .Values.auth.token .Values.auth.existingSecret }}
+            - name: AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kubeshipper.authSecretName" . }}
+                  key: auth-token
+                  optional: true
+            {{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: {{ .Values.storage.mountPath }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "kubeshipper.fullname" . }}-data
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

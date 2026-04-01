@@ -1,0 +1,94 @@
+# ---------------------------------------------------------------------------
+# Replica count
+# MUST be 1 when using SQLite storage. SQLite does not support concurrent
+# multi-process writes. Running 2+ replicas causes split-brain state.
+# To scale horizontally, migrate the state store to PostgreSQL.
+# ---------------------------------------------------------------------------
+replicaCount: 1
+
+image:
+  repository: gcr.io/aerol-ai/kubeshipper
+  pullPolicy: IfNotPresent
+  # Overrides the image tag. Defaults to the chart appVersion.
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  # Set a custom name. Defaults to the release fullname.
+  name: ""
+
+# ---------------------------------------------------------------------------
+# Authentication
+# ---------------------------------------------------------------------------
+auth:
+  # Bearer token required on all /services routes.
+  # Leave empty ("") to run in open/dev mode (no auth).
+  # Clients must send:  Authorization: Bearer <token>
+  token: ""
+
+  # Supply an existing Kubernetes Secret instead of creating one.
+  # The secret must have the key "auth-token".
+  # When set, auth.token is ignored.
+  existingSecret: ""
+
+# ---------------------------------------------------------------------------
+# Storage — SQLite PersistentVolumeClaim
+# ---------------------------------------------------------------------------
+storage:
+  size: 1Gi
+  # Set to a StorageClass name to use a specific provisioner.
+  # Leave empty to use the cluster default StorageClass.
+  storageClass: ""
+  mountPath: /data
+
+# ---------------------------------------------------------------------------
+# RBAC
+# ---------------------------------------------------------------------------
+rbac:
+  # clusterWide: true  → ClusterRole + ClusterRoleBinding
+  #                       kubeshipper can deploy to ANY namespace.
+  #
+  # clusterWide: false → Role + RoleBinding per namespace
+  #                       kubeshipper can only deploy to namespaces listed
+  #                       in managedNamespaces below. This is the recommended
+  #                       setting for production multi-tenant clusters.
+  clusterWide: true
+
+  # Used only when clusterWide is false.
+  # List every namespace kubeshipper is allowed to manage workloads in.
+  managedNamespaces:
+    - default
+
+# ---------------------------------------------------------------------------
+# Managed namespace — where kubeshipper deploys workloads by default
+# Deprecated in favour of rbac.managedNamespaces; kept for backwards compat.
+# The MANAGED_NAMESPACES env var is now derived from rbac.managedNamespaces.
+# ---------------------------------------------------------------------------
+# managedNamespace is no longer used directly; see rbac.managedNamespaces below
+
+# ---------------------------------------------------------------------------
+# Service (the Kubernetes Service for kubeshipper's own HTTP API)
+# ---------------------------------------------------------------------------
+service:
+  type: ClusterIP
+  port: 3000
+
+# ---------------------------------------------------------------------------
+# Resource requests and limits for the kubeshipper pod
+# ---------------------------------------------------------------------------
+resources: {}
+# requests:
+#   cpu: 50m
+#   memory: 128Mi
+# limits:
+#   cpu: 200m
+#   memory: 256Mi
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

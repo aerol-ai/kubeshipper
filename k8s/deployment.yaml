@@ -20,7 +20,7 @@ spec:
       serviceAccountName: kubeshipper  # created by k8s/rbac.yaml
       containers:
         - name: kubeshipper
-          image: ghcr.io/your-org/kubeshipper:latest
+          image: ghcr.io/aerol-aikubeshipper:latest
           ports:
             - containerPort: 3000
           env:
@@ -35,6 +35,13 @@ spec:
                   optional: true   # if the Secret doesn't exist, auth is disabled
             - name: DB_PATH
               value: /data/kubeshipper.sqlite
+            # MANAGED_NAMESPACES — REQUIRED. Comma-separated list of namespaces
+            # kubeshipper is allowed to deploy workloads into.
+            # The server will refuse to start if this is missing or empty.
+            # Each namespace must have a Role + RoleBinding for the kubeshipper
+            # ServiceAccount (see k8s/rbac.yaml or k8s/rbac-namespaced.yaml).
+            - name: MANAGED_NAMESPACES
+              value: default
           volumeMounts:
             - name: data
               mountPath: /data

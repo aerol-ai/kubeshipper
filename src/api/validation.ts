@@ -13,6 +13,7 @@ export const ResourcesSchema = z.object({
 
 export const ServiceSpecSchema = z.object({
   name: z.string().min(1).max(63).regex(/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/, "Must be a valid DNS-1035 label"),
+  namespace: z.string().optional(),
   image: z.string().min(1),
   port: z.number().int().min(1).max(65535).optional(),
   env: z.record(z.string(), z.string()).optional(),
