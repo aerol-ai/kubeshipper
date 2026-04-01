@@ -17,8 +17,8 @@ export const ServiceSpecSchema = z.object({
   port: z.number().int().min(1).max(65535).optional(),
   env: z.record(z.string(), z.string()).optional(),
   replicas: z.number().int().min(0).default(1),
-  public: z.boolean().default(false),
-  resources: ResourcesSchema.optional(),
+  public: z.boolean().default(false),  hostname: z.string().optional(),
+  imagePullSecret: z.string().optional(),  resources: ResourcesSchema.optional(),
   type: z.enum(["service", "job", "cronjob"]).default("service"),
   schedule: z.string().optional(), // Used if type is cronjob
 });

@@ -5,12 +5,9 @@ import type { ServiceSpec } from "../api/validation";
 const NAMESPACE = "default";
 const FIELD_MANAGER = "kubeshipper";
 
-/**
- * Common headers/options for Server-Side Apply.
- */
-const patchOptions = {
-  headers: { "Content-Type": "application/apply-patch+yaml" },
-};
+// initOverrides (second arg) passed to patch calls so the HTTP client actually sends the header
+const SSA_INIT = { headers: { "Content-Type": "application/apply-patch+yaml" } };
+const SMP_INIT = { headers: { "Content-Type": "application/strategic-merge-patch+json" } };
 
 export async function deployService(spec: ServiceSpec): Promise<void> {
   // 1. Apply Deployment
@@ -46,39 +43,38 @@ export async function deleteService(id: string): Promise<void> {
 }
 
 export async function restartService(id: string): Promise<void> {
-  const patch = [
-    {
-      op: "replace",
-      path: "/spec/template/metadata/annotations/kubeshipper.restartedAt",
-      value: new Date().toISOString(),
+  // Strategic merge patch safely creates the annotation whether or not it already exists
+  const patch = {
+    spec: {
+      template: {
+        metadata: {
+          annotations: {
+            "kubeshipper.io/restartedAt": new Date().toISOString(),
+          },
+        },
+      },
     },
-  ];
+  };
 
-  await (k8sApi.patchNamespacedDeployment as any)({
-    name: id,
-    namespace: NAMESPACE,
-    body: patch,
-    fieldManager: FIELD_MANAGER,
-    options: {
-      headers: { "Content-Type": "application/json-patch+json" },
-    }
-  });
+  await (k8sApi.patchNamespacedDeployment as any)(
+    { name: id, namespace: NAMESPACE, body: patch },
+    SMP_INIT
+  );
 }
 
 export async function getServiceStatus(id: string): Promise<any> {
   try {
     const deployment = await k8sApi.readNamespacedDeploymentStatus({ name: id, namespace: NAMESPACE });
-    // In @kubernetes/client-node v1, the model is returned directly or in `.body`?
-    // Based on error `Property 'body' does not exist on type 'V1Deployment'`, it returns the object directly.
     const status = deployment.status;
-    const readyReplicas = status?.readyReplicas || 0;
-    const missingReplicas = (status?.replicas || 0) - readyReplicas;
+    const desired = status?.replicas ?? 0;
+    const readyReplicas = status?.readyReplicas ?? 0;
 
     return {
-      ready: readyReplicas > 0 && missingReplicas === 0,
+      // Scale-to-zero (desired === 0) is intentionally ready; otherwise all replicas must be up
+      ready: desired === 0 || (readyReplicas > 0 && readyReplicas === desired),
       readyReplicas,
-      totalReplicas: status?.replicas || 0,
-      conditions: status?.conditions || [],
+      totalReplicas: desired,
+      conditions: status?.conditions ?? [],
     };
   } catch (e) {
     return { ready: false, reason: "Deployment not found" };
@@ -88,8 +84,8 @@ export async function getServiceStatus(id: string): Promise<any> {
 // ---- Internal Manifest Builders ----
 
 async function applyDeployment(spec: ServiceSpec) {
-  const envVars = spec.env 
-    ? Object.entries(spec.env).map(([name, value]) => ({ name, value: String(value) })) 
+  const envVars = spec.env
+    ? Object.entries(spec.env).map(([name, value]) => ({ name, value: String(value) }))
     : undefined;
 
   const container: k8s.V1Container = {
@@ -121,21 +117,18 @@ async function applyDeployment(spec: ServiceSpec) {
         },
         spec: {
           containers: [container],
+          imagePullSecrets: spec.imagePullSecret
+            ? [{ name: spec.imagePullSecret }]
+            : undefined,
         },
       },
     },
   };
 
-  const yamlString = k8s.dumpYaml(deployment);
-  
-  await (k8sApi.patchNamespacedDeployment as any)({
-    name: spec.name,
-    namespace: NAMESPACE,
-    body: yamlString,
-    fieldManager: FIELD_MANAGER,
-    force: true,
-    options: patchOptions
-  });
+  await (k8sApi.patchNamespacedDeployment as any)(
+    { name: spec.name, namespace: NAMESPACE, body: deployment, fieldManager: FIELD_MANAGER, force: true },
+    SSA_INIT
+  );
 }
 
 async function applyService(spec: ServiceSpec) {
@@ -159,19 +152,31 @@ async function applyService(spec: ServiceSpec) {
     },
   };
 
-  const yamlString = k8s.dumpYaml(service);
-
-  await (k8sCoreApi.patchNamespacedService as any)({
-    name: spec.name,
-    namespace: NAMESPACE,
-    body: yamlString,
-    fieldManager: FIELD_MANAGER,
-    force: true,
-    options: patchOptions
-  });
+  await (k8sCoreApi.patchNamespacedService as any)(
+    { name: spec.name, namespace: NAMESPACE, body: service, fieldManager: FIELD_MANAGER, force: true },
+    SSA_INIT
+  );
 }
 
 async function applyIngress(spec: ServiceSpec) {
+  const rule: k8s.V1IngressRule = {
+    http: {
+      paths: [
+        {
+          path: "/",
+          pathType: "Prefix",
+          backend: {
+            service: {
+              name: spec.name,
+              port: { number: spec.port as number },
+            },
+          },
+        },
+      ],
+    },
+  };
+  if (spec.hostname) rule.host = spec.hostname;
+
   const ingress: k8s.V1Ingress = {
     apiVersion: "networking.k8s.io/v1",
     kind: "Ingress",
@@ -180,35 +185,12 @@ async function applyIngress(spec: ServiceSpec) {
       namespace: NAMESPACE,
     },
     spec: {
-      rules: [
-        {
-          http: {
-            paths: [
-              {
-                path: "/",
-                pathType: "Prefix",
-                backend: {
-                  service: {
-                    name: spec.name,
-                    port: { number: spec.port as number },
-                  },
-                },
-              },
-            ],
-          },
-        },
-      ],
+      rules: [rule],
     },
   };
 
-  const yamlString = k8s.dumpYaml(ingress);
-
-  await (k8sNetworkingApi.patchNamespacedIngress as any)({
-    name: spec.name,
-    namespace: NAMESPACE,
-    body: yamlString,
-    fieldManager: FIELD_MANAGER,
-    force: true,
-    options: patchOptions
-  });
+  await (k8sNetworkingApi.patchNamespacedIngress as any)(
+    { name: spec.name, namespace: NAMESPACE, body: ingress, fieldManager: FIELD_MANAGER, force: true },
+    SSA_INIT
+  );
 }

@@ -1,8 +1,11 @@
 import { Database } from "bun:sqlite";
 import type { ServiceSpec } from "../api/validation";
 
-// Initialize SQLite Database (creates a local file kubeshipper.sqlite)
-export const db = new Database("kubeshipper.sqlite", { create: true });
+// DB_PATH can point to a mounted PVC path in Kubernetes.
+// IMPORTANT: kubeshipper must run as a single replica when using SQLite.
+// SQLite does not support concurrent multi-process writes; multiple pods
+// would produce split-brain state and double-process every deployment.
+export const db = new Database(process.env.DB_PATH ?? "kubeshipper.sqlite", { create: true });
 
 // Enable Write-Ahead Logging for better concurrency and performance
 db.query("PRAGMA journal_mode = WAL;").run();

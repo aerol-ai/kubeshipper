@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kubeshipper
+  namespace: default
+spec:
+  # IMPORTANT: must stay at 1.
+  # kubeshipper uses SQLite for state. Running multiple replicas would give
+  # each pod its own database (split-brain) and double-process every deployment.
+  # To scale horizontally, migrate the store to PostgreSQL first.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kubeshipper
+  template:
+    metadata:
+      labels:
+        app: kubeshipper
+    spec:
+      serviceAccountName: kubeshipper  # created by k8s/rbac.yaml
+      containers:
+        - name: kubeshipper
+          image: ghcr.io/your-org/kubeshipper:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: PORT
+              value: "3000"
+            # AUTH_TOKEN — set this to require Bearer token auth on all /services routes
+            - name: AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: kubeshipper-secrets
+                  key: auth-token
+                  optional: true   # if the Secret doesn't exist, auth is disabled
+            - name: DB_PATH
+              value: /data/kubeshipper.sqlite
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 3
+            periodSeconds: 5
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: kubeshipper-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kubeshipper-data
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce   # single pod access — matches replicas: 1
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kubeshipper
+  namespace: default
+spec:
+  selector:
+    app: kubeshipper
+  ports:
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP
+  type: ClusterIP

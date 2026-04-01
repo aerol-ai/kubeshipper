@@ -5,7 +5,11 @@ let pollingInterval: ReturnType<typeof setInterval>;
 
 export function startBackgroundWorkers() {
   console.log("Starting KubeShipper worker loops...");
-  
+
+  // If the process crashed mid-deploy, services may be stuck in DEPLOYING.
+  // Re-queue them so the next loop picks them up cleanly.
+  db.query("UPDATE services SET status = 'PENDING' WHERE status = 'DEPLOYING'").run();
+
   // High frequency loop for orchestration (every 5 seconds)
   pollingInterval = setInterval(async () => {
     try {
