@@ -307,27 +307,83 @@ kubectl auth can-i list deployments \
   --namespace production \
   --as system:serviceaccount:default:kubeshipper
 # → yes
+```
 
 ---
 
 ## GitHub Actions + OCI packaging (GHCR)
 
-The workflow file `.github/workflows/build-push-gcr.yml` now builds:
+The workflow file `.github/workflows/build-push-gcr.yml` builds and pushes on every push to `main` and on `v*` tags:
 
-- Container image push to `ghcr.io/<owner>FF
-- Helm chart package and push to `oci://ghcr.io/aerol-ai/helm/kubeshipper`
+- **Container image** → `ghcr.io/aerol-ai/kubeshipper`
+- **Helm OCI chart** → `oci://ghcr.io/aerol-ai/helm/kubeshipper`
 
-It uses `docker/login-action` + `GITHUB_TOKEN` (no GCP required).
+Authentication uses the built-in `GITHUB_TOKEN` — no GCP account, no service account keys, no extra secrets required.
 
-### Publish trigger
+### Publish triggers
 
-- push to `main`
-- push tags `v*`
+| Event | What is published |
+|-------|-------------------|
+| Push to `main` | image tagged `main` + short SHA; chart at current `version` in `Chart.yaml` |
+| Push tag `v1.2.3` | image tagged `1.2.3` + `latest`; chart `appVersion` bumped to match |
 
-### Install Helm chart example
+### Install from GHCR OCI registry
+
+`MANAGED_NAMESPACES` is **required** — the server will refuse to start without it. Pass it via `--set` or a values file.
+
+**Minimal install (cluster-wide access, single namespace):**
 
 ```bash
-helm install kubeshipper oci://ghcr.io/aerol-ai/helm/kubeshipper --version 0.1.0
+helm install kubeshipper oci://ghcr.io/aerol-ai/helm/kubeshipper \
+  --version 0.1.0 \
+  --namespace kubeshipper \
+  --create-namespace \
+  --set auth.token=your-secret-token \
+  --set rbac.managedNamespaces[0]=default
+```
+
+**Namespace-scoped install (production + staging only):**
+
+```bash
+helm install kubeshipper oci://ghcr.io/aerol-ai/helm/kubeshipper \
+  --version 0.1.0 \
+  --namespace kubeshipper \
+  --create-namespace \
+  --set auth.token=your-secret-token \
+  --set rbac.clusterWide=false \
+  --set rbac.managedNamespaces[0]=production \
+  --set rbac.managedNamespaces[1]=staging
+```
+
+Or via a values file:
+
+```yaml
+# my-values.yaml
+auth:
+  token: your-secret-token
+
+rbac:
+  clusterWide: false
+  managedNamespaces:
+    - production
+    - staging
+```
+
+```bash
+helm install kubeshipper oci://ghcr.io/aerol-ai/helm/kubeshipper \
+  --version 0.1.0 \
+  --namespace kubeshipper \
+  --create-namespace \
+  -f my-values.yaml
+```
+
+### Upgrade
+
+```bash
+helm upgrade kubeshipper oci://ghcr.io/aerol-ai/helm/kubeshipper \
+  --version 0.2.0 \
+  --namespace kubeshipper \
+  -f my-values.yaml
 ```
 ```
 
