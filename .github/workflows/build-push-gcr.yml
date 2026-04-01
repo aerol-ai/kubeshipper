@@ -9,10 +9,11 @@ on:
 
 env:
   IMAGE: ghcr.io/${{ github.repository_owner }}/kubeshipper
+  HELM_CHART_OCI: ghcr.io/${{ github.repository_owner }}/helm/kubeshipper
 
 jobs:
   build-push:
-    name: Build & Push Docker Image
+    name: Build & Push Docker Image + Helm OCI Chart
     runs-on: ubuntu-latest
 
     permissions:
@@ -60,3 +61,34 @@ jobs:
           # GitHub Actions cache keeps rebuilds fast
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # -----------------------------------------------------------------------
+      # Helm OCI chart — published to ghcr.io/aerol-ai/helm/kubeshipper
+      # Install:  helm install kubeshipper oci://ghcr.io/aerol-ai/helm/kubeshipper --version <ver>
+      # -----------------------------------------------------------------------
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: latest
+
+      - name: Read chart version
+        id: chart
+        run: |
+          VERSION=$(grep '^version:' helm-chart/Chart.yaml | awk '{print $2}')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Update Helm chart appVersion to match image tag
+        # On a semver tag push, keep appVersion in sync with the release tag.
+        # On branch pushes the chart appVersion stays as defined in Chart.yaml.
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          sed -i "s/^appVersion:.*/appVersion: \"$TAG\"/" helm-chart/Chart.yaml
+
+      - name: Package Helm chart
+        run: helm package helm-chart --destination /tmp/helm-pkg
+
+      - name: Push Helm chart as OCI artifact
+        run: |
+          helm push /tmp/helm-pkg/kubeshipper-${{ steps.chart.outputs.version }}.tgz \
+            oci://ghcr.io/${{ github.repository_owner }}/helm

@@ -101,7 +101,7 @@ The server starts on `http://localhost:3000`. Your local `~/.kube/config` is use
 helm install kubeshipper ./helm-chart \
   --namespace kubeshipper \
   --create-namespace \
-  --set image.repository=gcr.io/YOUR_PROJECT/kubeshipper \
+  --set image.repository=gcr.io/aerol-ai/kubeshipper \
   --set image.tag=latest \
   --set auth.token=your-secret-token
 ```
@@ -144,7 +144,7 @@ To restrict KubeShipper to only manage the `production` and `staging` namespaces
 helm install kubeshipper ./helm-chart \
   --namespace kubeshipper \
   --create-namespace \
-  --set image.repository=gcr.io/YOUR_PROJECT/kubeshipper \
+  --set image.repository=gcr.io/aerol-ai/kubeshipper \
   --set auth.token=your-secret-token \
   --set managedNamespace=production \
   --set rbac.clusterWide=false \
@@ -156,7 +156,7 @@ Or via a custom values file (`my-values.yaml`):
 
 ```yaml
 image:
-  repository: gcr.io/YOUR_PROJECT/kubeshipper
+  repository: gcr.io/aerol-ai/kubeshipper
   tag: latest
 
 auth:
@@ -307,6 +307,28 @@ kubectl auth can-i list deployments \
   --namespace production \
   --as system:serviceaccount:default:kubeshipper
 # → yes
+
+---
+
+## GitHub Actions + OCI packaging (GHCR)
+
+The workflow file `.github/workflows/build-push-gcr.yml` now builds:
+
+- Container image push to `ghcr.io/<owner>FF
+- Helm chart package and push to `oci://ghcr.io/aerol-ai/helm/kubeshipper`
+
+It uses `docker/login-action` + `GITHUB_TOKEN` (no GCP required).
+
+### Publish trigger
+
+- push to `main`
+- push tags `v*`
+
+### Install Helm chart example
+
+```bash
+helm install kubeshipper oci://ghcr.io/aerol-ai/helm/kubeshipper --version 0.1.0
+```
 ```
 
 ### Restrict via Helm
