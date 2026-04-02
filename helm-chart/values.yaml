@@ -8,9 +8,9 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/aerol-ai/kubeshipper
-  pullPolicy: IfNotPresent
-  # Overrides the image tag. Defaults to the chart appVersion.
-  tag: ""
+  pullPolicy: Always
+  # Overrides the image tag. Set to a specific git SHA in CI/CD via --set image.tag=$GITHUB_SHA
+  tag: "latest"
 
 imagePullSecrets: []
 nameOverride: ""
