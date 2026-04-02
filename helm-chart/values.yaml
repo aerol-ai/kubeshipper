@@ -7,7 +7,7 @@
 replicaCount: 1
 
 image:
-  repository: gcr.io/aerol-ai/kubeshipper
+  repository: ghcr.io/aerol-ai/kubeshipper
   pullPolicy: IfNotPresent
   # Overrides the image tag. Defaults to the chart appVersion.
   tag: ""

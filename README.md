@@ -33,7 +33,7 @@ A lightweight HTTP API service that manages Kubernetes workloads. Send a JSON sp
 ```json
 {
   "name": "my-api",
-  "image": "gcr.io/my-project/my-api:abc1234",
+  "image": "ghcr.io/my-project/my-api:abc1234",
   "port": 3000,
   "env": { "NODE_ENV": "production" },
   "replicas": 2,
@@ -101,7 +101,7 @@ The server starts on `http://localhost:3000`. Your local `~/.kube/config` is use
 helm install kubeshipper ./helm-chart \
   --namespace kubeshipper \
   --create-namespace \
-  --set image.repository=gcr.io/aerol-ai/kubeshipper \
+  --set image.repository=ghcr.io/aerol-ai/kubeshipper \
   --set image.tag=latest \
   --set auth.token=your-secret-token
 ```
@@ -124,7 +124,7 @@ helm uninstall kubeshipper --namespace kubeshipper
 
 | Value | Default | Description |
 |-------|---------|-------------|
-| `image.repository` | `gcr.io/aerol-ai/kubeshipper` | Container image repository |
+| `image.repository` | `ghcr.io/aerol-ai/kubeshipper` | Container image repository |
 | `image.tag` | `""` (chart appVersion) | Image tag |
 | `auth.token` | `""` | Bearer token. Empty = no auth. |
 | `auth.existingSecret` | `""` | Use a pre-existing K8s Secret instead of creating one. Must have key `auth-token`. |
@@ -144,7 +144,7 @@ To restrict KubeShipper to only manage the `production` and `staging` namespaces
 helm install kubeshipper ./helm-chart \
   --namespace kubeshipper \
   --create-namespace \
-  --set image.repository=gcr.io/aerol-ai/kubeshipper \
+  --set image.repository=ghcr.io/aerol-ai/kubeshipper \
   --set auth.token=your-secret-token \
   --set managedNamespace=production \
   --set rbac.clusterWide=false \
@@ -156,7 +156,7 @@ Or via a custom values file (`my-values.yaml`):
 
 ```yaml
 image:
-  repository: gcr.io/aerol-ai/kubeshipper
+  repository: ghcr.io/aerol-ai/kubeshipper
   tag: latest
 
 auth:
@@ -420,7 +420,7 @@ docker run --rm \
 
 ## CI/CD — Pushing to GCR
 
-The GitHub Actions workflow at `.github/workflows/build-push-gcr.yml` builds and pushes to `gcr.io` on every push to `main` and on version tags (`v*`).
+The GitHub Actions workflow at `.github/workflows/build-push-gcr.yml` builds and pushes to `ghcr.io` on every push to `main` and on version tags (`v*`).
 
 ### Required GitHub secrets
 
