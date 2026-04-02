@@ -44,6 +44,8 @@ spec:
               value: {{ .Values.storage.mountPath }}/kubeshipper.sqlite
             - name: MANAGED_NAMESPACES
               value: {{ .Values.rbac.managedNamespaces | join "," | quote }}
+            - name: APP_VERSION
+              value: {{ .Values.image.tag | default .Chart.AppVersion | quote }}
             {{- if or .Values.auth.token .Values.auth.existingSecret }}
             - name: AUTH_TOKEN
               valueFrom:

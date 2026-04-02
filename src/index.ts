@@ -12,11 +12,28 @@ initDB();
 startBackgroundWorkers();
 
 const app = new Hono();
+const startedAt = new Date().toISOString();
 
 app.use("*", logger());
 
+// Root endpoint — confirms the server is reachable
+app.get("/", (c) =>
+  c.json({
+    name: "kubeshipper",
+    description: "Lightweight Kubernetes deployment API",
+    docs: "/services",
+  })
+);
+
 // /health is always public — used by liveness/readiness probes
-app.get("/health", (c) => c.json({ status: "ok" }));
+app.get("/health", (c) =>
+  c.json({
+    status: "ok",
+    uptime: Math.floor(process.uptime()),
+    startedAt,
+    version: process.env.APP_VERSION ?? "unknown",
+  })
+);
 
 // All /services routes require auth when AUTH_TOKEN is set in env
 app.use("/services/*", authMiddleware);
