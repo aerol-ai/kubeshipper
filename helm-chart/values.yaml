@@ -87,6 +87,81 @@ service:
   port: 3000
 
 # ---------------------------------------------------------------------------
+# Ingress — expose kubeshipper outside the cluster
+# ---------------------------------------------------------------------------
+# Pluggable: pick a provider matching the ingress controller already running
+# in your cluster. The chart does NOT install or check for the controller —
+# you assert it exists by setting `provider`. DNS for `host` must resolve
+# to the controller's external IP/hostname before TLS via ACME will work.
+#
+# Currently supported providers: traefik
+# Planned:                       nginx, caddy
+# ---------------------------------------------------------------------------
+ingress:
+  # Master switch. When false, no ingress resources are rendered.
+  enabled: false
+
+  # Which ingress controller to target. Required when enabled.
+  # Supported: "traefik". Anything else fails at install time.
+  provider: ""
+
+  # Public hostname clients will use, e.g. "shipper.example.com".
+  # REQUIRED when enabled. The chart will not invent one for you.
+  host: ""
+
+  # TLS configuration shared across providers.
+  tls:
+    # Default on. To expose plain HTTP (not recommended), set to false.
+    enabled: true
+    # Bring-your-own TLS secret (must contain tls.crt / tls.key for `host`).
+    # If empty, you must set a provider-specific cert mechanism below
+    # (e.g. traefik.certResolver) so the controller can provision a cert.
+    secretName: ""
+
+  # Safety rail: refuse to render an ingress when no auth token is set.
+  # Override only if you know what you're doing — exposing the API
+  # without auth grants workload-deploy (and possibly cluster-admin) to
+  # anyone who can reach `host`.
+  allowUnauthenticated: false
+
+  # -------------------------------------------------------------------------
+  # Traefik-specific options. Only read when provider == "traefik".
+  # -------------------------------------------------------------------------
+  traefik:
+    # "IngressRoute" → Traefik-native CRD (more features: middlewares,
+    #                   certResolver, raw router options).
+    # "Ingress"      → standard networking.k8s.io/v1 Ingress (portable;
+    #                   Traefik picks it up via ingressClassName).
+    kind: IngressRoute
+
+    # IngressRoute only — Traefik entrypoints to bind the route to.
+    entryPoints:
+      - websecure
+
+    # Ingress only — ingressClassName field on the Ingress object.
+    ingressClassName: traefik
+
+    # IngressRoute only — name of a Traefik certResolver configured in
+    # your Traefik static config (e.g. "letsencrypt"). When set, Traefik
+    # provisions a cert for `host` via ACME. Requires DNS to resolve first.
+    # Mutually informative with tls.secretName: set ONE of them.
+    certResolver: ""
+
+    # IngressRoute only — references to existing Traefik Middleware CRDs
+    # (rate-limit, IP allowlist, basic-auth, etc.). The chart does not
+    # create middlewares — you create them separately and reference here.
+    # Each entry: { name: <middleware-name>, namespace: <ns> }
+    middlewares: []
+
+    # Extra annotations applied to the rendered ingress resource.
+    annotations: {}
+
+    # Raw passthrough for advanced IngressRoute router fields you need
+    # but the chart doesn't surface explicitly (e.g. priority, custom
+    # match rule). Merged into the route object.
+    routerOptions: {}
+
+# ---------------------------------------------------------------------------
 # Resource requests and limits for the kubeshipper pod
 # ---------------------------------------------------------------------------
 resources: {}

@@ -13,9 +13,10 @@ Single Go binary, single SQLite file for local state, no sidecars.
 2. [Running Locally](#running-locally)
 3. [Environment Variables](#environment-variables)
 4. [Deploying via Helm (recommended)](#deploying-via-helm-recommended)
-5. [Deploying via Raw Manifests](#deploying-via-raw-manifests)
-6. [Required Kubernetes Permissions](#required-kubernetes-permissions)
-7. [Namespace-scoped Access](#namespace-scoped-access)
+5. [Exposing KubeShipper externally (Ingress)](#exposing-kubeshipper-externally-ingress)
+6. [Deploying via Raw Manifests](#deploying-via-raw-manifests)
+7. [Required Kubernetes Permissions](#required-kubernetes-permissions)
+8. [Namespace-scoped Access](#namespace-scoped-access)
 
 ---
 
@@ -182,6 +183,16 @@ helm uninstall kubeshipper --namespace kubeshipper
 | `rbac.helmAdmin` | `false` | Required for `/charts`. Binds the SA to `cluster-admin` so Helm can install charts containing CRDs / cluster-scoped resources. |
 | `replicaCount` | `1` | **Do not increase.** SQLite requires a single writer. |
 | `service.type` | `ClusterIP` | K8s Service type for KubeShipper's own API |
+| `ingress.enabled` | `false` | Render an external-access resource. See [Exposing externally](#exposing-kubeshipper-externally-ingress). |
+| `ingress.provider` | `""` | Which ingress controller to target. Currently supported: `traefik`. |
+| `ingress.host` | `""` | Public hostname (e.g. `shipper.example.com`). Required when enabled. |
+| `ingress.tls.enabled` | `true` | Whether to serve TLS. Either `tls.secretName` or a provider-specific cert source must be set. |
+| `ingress.tls.secretName` | `""` | Bring-your-own TLS secret containing `tls.crt`/`tls.key` for `host`. |
+| `ingress.allowUnauthenticated` | `false` | Override the safety rail that refuses to expose KubeShipper without `auth.token` set. |
+| `ingress.traefik.kind` | `IngressRoute` | `IngressRoute` (Traefik CRD) or `Ingress` (standard k8s, picked up by Traefik). |
+| `ingress.traefik.entryPoints` | `[websecure]` | Traefik entrypoints (IngressRoute only). |
+| `ingress.traefik.certResolver` | `""` | Traefik cert resolver (e.g. `letsencrypt`) for ACME. IngressRoute only. |
+| `ingress.traefik.middlewares` | `[]` | References to existing Traefik Middleware CRDs (`{name, namespace}`). |
 
 #### Enabling `/charts`
 
@@ -256,6 +267,100 @@ helm install kubeshipper ./helm-chart -f my-values.yaml --namespace kubeshipper 
 
 ---
 
+## Exposing KubeShipper externally (Ingress)
+
+By default the chart only renders a `ClusterIP` Service — KubeShipper is reachable only from inside the cluster (or via `kubectl port-forward`). To expose it to clients outside the cluster, enable the `ingress` block.
+
+The chart is **provider-pluggable**. Today only `traefik` is implemented; `nginx` and `caddy` are planned. The chart does not check whether your ingress controller is actually running — by setting `provider`, you assert it exists.
+
+### Prerequisites
+
+1. An ingress controller already running in the cluster (Traefik for the example below).
+2. A DNS record pointing `host` at the controller's external IP/hostname. Set this **before** install if you use ACME — Let's Encrypt's HTTP-01 challenge will fail otherwise.
+3. `auth.token` (or `auth.existingSecret`) set. The chart refuses to render an ingress without authentication unless you opt in to `ingress.allowUnauthenticated=true`.
+
+### Traefik — IngressRoute (recommended)
+
+```bash
+helm install kubeshipper oci://ghcr.io/aerol-ai/helm/kubeshipper \
+  --version 0.1.1 \
+  --namespace kubeshipper --create-namespace \
+  --set auth.token=$(openssl rand -hex 32) \
+  --set rbac.helmAdmin=true \
+  --set rbac.clusterWide=true \
+  --set ingress.enabled=true \
+  --set ingress.provider=traefik \
+  --set ingress.host=shipper.example.com \
+  --set ingress.traefik.kind=IngressRoute \
+  --set ingress.traefik.certResolver=letsencrypt
+```
+
+`certResolver` must match a resolver name from your Traefik static config. If you'd rather provide your own cert, drop the `certResolver` flag and pass `--set ingress.tls.secretName=my-existing-tls-secret`.
+
+### Traefik — standard Ingress (portable)
+
+Useful when you want a plain `networking.k8s.io/v1` Ingress that other controllers could also consume:
+
+```bash
+helm install kubeshipper oci://ghcr.io/aerol-ai/helm/kubeshipper \
+  --version 0.1.1 \
+  --namespace kubeshipper --create-namespace \
+  --set auth.token=$(openssl rand -hex 32) \
+  --set ingress.enabled=true \
+  --set ingress.provider=traefik \
+  --set ingress.host=shipper.example.com \
+  --set ingress.traefik.kind=Ingress \
+  --set ingress.traefik.ingressClassName=traefik \
+  --set ingress.tls.secretName=kubeshipper-tls
+```
+
+### Adding rate-limit / IP-allowlist via Traefik Middleware
+
+Create the Middleware CRDs separately, then reference them from the chart:
+
+```yaml
+# my-values.yaml
+ingress:
+  enabled: true
+  provider: traefik
+  host: shipper.example.com
+  traefik:
+    kind: IngressRoute
+    certResolver: letsencrypt
+    middlewares:
+      - name: shipper-ratelimit
+        namespace: kubeshipper
+      - name: shipper-ip-allowlist
+        namespace: kubeshipper
+```
+
+The chart does not create middlewares — managing them stays your responsibility, which keeps this chart small and predictable.
+
+### Validation
+
+The chart fails at `helm install` time on any of the following — by design:
+
+| Misconfiguration | Error |
+|---|---|
+| `ingress.enabled=true`, `provider=""` | `ingress.provider must be set when ingress.enabled is true` |
+| Unsupported provider (e.g. `nginx`) | `ingress.provider "nginx" is not supported yet` |
+| Missing `host` | `ingress.host is required when ingress.enabled is true` |
+| TLS on, no `secretName` and no `certResolver` | `no cert source configured` |
+| No `auth.token`, no `auth.existingSecret`, `allowUnauthenticated` not set | `refusing to expose kubeshipper without authentication` |
+
+### Smoke test
+
+Once the IngressRoute / Ingress is applied and DNS resolves:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" https://shipper.example.com/health
+# {"started_at":"...","status":"ok","version":"..."}
+```
+
+> ⚠️ The bearer token is cluster-admin-equivalent when `rbac.helmAdmin=true`. Always pair external exposure with TLS, a strong random token, and ideally an IP-allowlist Middleware.
+
+---
+
 ## Deploying via Raw Manifests
 
 > These manifests are in `k8s/`. Apply them in order.
@@ -312,14 +417,13 @@ curl http://<POD_IP>:3000/health
 
 ### Accessing the API from outside the cluster
 
-KubeShipper's Service is `ClusterIP` by default. To expose it:
+KubeShipper's Service is `ClusterIP` by default. For temporary access:
 
 ```bash
-# Port-forward for temporary access
 kubectl port-forward svc/kubeshipper 3000:3000
-
-# Or change the Service type to LoadBalancer in deployment.yaml
 ```
+
+For a real external endpoint (TLS, hostname, ingress controller integration), use the Helm install path with the `ingress` block — see [Exposing KubeShipper externally](#exposing-kubeshipper-externally-ingress). The raw manifests in `k8s/` do not include an Ingress; you'd need to author one yourself.
 
 ---
 

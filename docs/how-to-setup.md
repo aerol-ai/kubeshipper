@@ -6,12 +6,13 @@ End-to-end guide. Covers local development, Docker, and Kubernetes deployment.
 - [2. Local development](#2-local-development)
 - [3. Build the Docker image](#3-build-the-docker-image)
 - [4. Deploy to Kubernetes (Helm — recommended)](#4-deploy-to-kubernetes-helm--recommended)
-- [5. Deploy to Kubernetes (raw manifests)](#5-deploy-to-kubernetes-raw-manifests)
-- [6. Configuration reference](#6-configuration-reference)
-- [7. Wiring credentials for /charts](#7-wiring-credentials-for-charts)
-- [8. First install via /charts (smoke test)](#8-first-install-via-charts-smoke-test)
-- [9. Tear down](#9-tear-down)
-- [10. Troubleshooting](#10-troubleshooting)
+- [5. Expose KubeShipper externally (Ingress)](#5-expose-kubeshipper-externally-ingress)
+- [6. Deploy to Kubernetes (raw manifests)](#6-deploy-to-kubernetes-raw-manifests)
+- [7. Configuration reference](#7-configuration-reference)
+- [8. Wiring credentials for /charts](#8-wiring-credentials-for-charts)
+- [9. First install via /charts (smoke test)](#9-first-install-via-charts-smoke-test)
+- [10. Tear down](#10-tear-down)
+- [11. Troubleshooting](#11-troubleshooting)
 
 ---
 
@@ -31,7 +32,7 @@ Optional, depending on what you'll do:
 | Build the container image | Docker (or any OCI builder — buildah, nerdctl, etc.) |
 | Use the `/charts` API | Cluster-admin on the cluster (see Section 4 + `rbac.helmAdmin`) |
 | Install charts that need TLS via cert-manager | cert-manager + Traefik (or similar Ingress) installed in the cluster |
-| Install charts whose ClusterIssuer uses Cloudflare DNS01 | A Cloudflare API token Secret — KubeShipper can provision this for you (see Section 7) |
+| Install charts whose ClusterIssuer uses Cloudflare DNS01 | A Cloudflare API token Secret — KubeShipper can provision this for you (see Section 8) |
 
 ---
 
@@ -217,7 +218,102 @@ helm upgrade kubeshipper ./helm-chart \
 
 ---
 
-## 5. Deploy to Kubernetes (raw manifests)
+## 5. Expose KubeShipper externally (Ingress)
+
+The chart ships with `ingress.enabled=false` — KubeShipper is `ClusterIP`-only by default. Turn the `ingress` block on to render a real external resource.
+
+The `ingress` block is **provider-pluggable**. Today only `traefik` is implemented; `nginx` and `caddy` are planned. The chart does not check whether the controller is actually running — by setting `provider`, you assert it exists.
+
+### 5.1 Prerequisites
+
+- An ingress controller already running (Traefik for the examples below).
+- A DNS record pointing your chosen `host` at the controller's external IP/hostname. Set this **before** install when using ACME — Let's Encrypt's HTTP-01 challenge fails without it.
+- `auth.token` (or `auth.existingSecret`) set. The chart refuses to render an ingress without authentication unless you opt in to `ingress.allowUnauthenticated=true`.
+
+### 5.2 Traefik IngressRoute (recommended)
+
+Uses Traefik's native CRD; supports cert resolvers, middlewares, and entrypoints.
+
+```bash
+helm install kubeshipper oci://ghcr.io/aerol-ai/helm/kubeshipper \
+  --version 0.1.1 \
+  --namespace kubeshipper --create-namespace \
+  --set auth.token=$(openssl rand -hex 32) \
+  --set rbac.helmAdmin=true \
+  --set rbac.clusterWide=true \
+  --set ingress.enabled=true \
+  --set ingress.provider=traefik \
+  --set ingress.host=shipper.example.com \
+  --set ingress.traefik.kind=IngressRoute \
+  --set ingress.traefik.certResolver=letsencrypt
+```
+
+`certResolver` must match a resolver name configured in your Traefik static config. To bring your own TLS secret instead, drop `certResolver` and set `--set ingress.tls.secretName=my-tls-cert`.
+
+### 5.3 Traefik standard Ingress (portable)
+
+Renders a `networking.k8s.io/v1` Ingress instead of the Traefik CRD. TLS must come from a pre-existing secret (no ACME via certResolver — that's IngressRoute-only):
+
+```bash
+helm install kubeshipper oci://ghcr.io/aerol-ai/helm/kubeshipper \
+  --version 0.1.1 \
+  --namespace kubeshipper --create-namespace \
+  --set auth.token=$(openssl rand -hex 32) \
+  --set ingress.enabled=true \
+  --set ingress.provider=traefik \
+  --set ingress.host=shipper.example.com \
+  --set ingress.traefik.kind=Ingress \
+  --set ingress.traefik.ingressClassName=traefik \
+  --set ingress.tls.secretName=kubeshipper-tls
+```
+
+### 5.4 Adding rate-limit / IP-allowlist via Traefik Middleware
+
+The chart does not create Middleware CRDs — you create them, then reference them in values:
+
+```yaml
+# my-values.yaml
+ingress:
+  enabled: true
+  provider: traefik
+  host: shipper.example.com
+  traefik:
+    kind: IngressRoute
+    certResolver: letsencrypt
+    middlewares:
+      - name: shipper-ratelimit
+        namespace: kubeshipper
+      - name: shipper-ip-allowlist
+        namespace: kubeshipper
+```
+
+### 5.5 Validation
+
+The chart fails at `helm install` time on the following — by design, so you never end up with a silently-broken externally-exposed deployment:
+
+| Misconfiguration | Error |
+|---|---|
+| `ingress.enabled=true`, `provider=""` | `ingress.provider must be set when ingress.enabled is true` |
+| Unsupported provider (e.g. `nginx`) | `ingress.provider "nginx" is not supported yet` |
+| Missing `host` | `ingress.host is required when ingress.enabled is true` |
+| TLS on, no `secretName` and no `certResolver` | `no cert source configured` |
+| No auth token and `allowUnauthenticated` not set | `refusing to expose kubeshipper without authentication` |
+
+### 5.6 Smoke test
+
+After DNS resolves and Traefik picks up the route:
+
+```bash
+TOKEN=...   # the auth.token you set
+curl -H "Authorization: Bearer $TOKEN" https://shipper.example.com/health
+# {"started_at":"...","status":"ok","version":"..."}
+```
+
+> ⚠️ The bearer token is cluster-admin-equivalent when `rbac.helmAdmin=true`. Always pair external exposure with TLS, a strong random token, and ideally an IP-allowlist Middleware.
+
+---
+
+## 6. Deploy to Kubernetes (raw manifests)
 
 Use this only if you can't use Helm. The raw manifests in `k8s/` only cover
 `/services`-style RBAC — extend RBAC manually if you want `/charts`.
@@ -235,7 +331,7 @@ kubectl create clusterrolebinding kubeshipper-helm-admin \
 
 ---
 
-## 6. Configuration reference
+## 7. Configuration reference
 
 ### Environment variables (read by the binary)
 
@@ -263,10 +359,20 @@ kubectl create clusterrolebinding kubeshipper-helm-admin \
 | `rbac.managedNamespaces` | `["default"]` | Drives `MANAGED_NAMESPACES` |
 | `rbac.helmAdmin` | `false` | Bind SA to `cluster-admin` so `/charts` can install arbitrary charts |
 | `replicaCount` | `1` | **Do not increase** — SQLite single-writer constraint |
+| `ingress.enabled` | `false` | Render an external-access resource (see Section 5) |
+| `ingress.provider` | `""` | Ingress controller to target. Supported: `traefik`. Planned: `nginx`, `caddy`. |
+| `ingress.host` | `""` | Public hostname (e.g. `shipper.example.com`). Required when enabled. |
+| `ingress.tls.enabled` | `true` | Whether to serve TLS. Requires `tls.secretName` or `traefik.certResolver`. |
+| `ingress.tls.secretName` | `""` | Bring-your-own TLS secret with `tls.crt`/`tls.key` for `host`. |
+| `ingress.allowUnauthenticated` | `false` | Override the safety rail that blocks exposing without `auth.token`. |
+| `ingress.traefik.kind` | `IngressRoute` | `IngressRoute` (CRD) or `Ingress` (standard k8s). |
+| `ingress.traefik.entryPoints` | `[websecure]` | Traefik entrypoints (IngressRoute only). |
+| `ingress.traefik.certResolver` | `""` | Traefik cert resolver name for ACME (IngressRoute only). |
+| `ingress.traefik.middlewares` | `[]` | References to existing Middleware CRDs (`{name, namespace}`). |
 
 ---
 
-## 7. Wiring credentials for /charts
+## 8. Wiring credentials for /charts
 
 Credentials are **per-request, never persisted**. The audit log hashes the body
 after redacting sensitive fields. There is no global "registry credentials"
@@ -370,7 +476,7 @@ The namespace is created if missing. Existing secrets are updated in place.
 
 ---
 
-## 8. First install via /charts (smoke test)
+## 9. First install via /charts (smoke test)
 
 ```bash
 TOKEN=...      # the auth.token you set
@@ -410,7 +516,7 @@ curl -H "Authorization: Bearer $TOKEN" "$KS/charts/aerol-stack?namespace=aerol-s
 
 ---
 
-## 9. Tear down
+## 10. Tear down
 
 ### Uninstall a Helm release managed by /charts
 
@@ -435,14 +541,14 @@ The PVC is deleted with the release; its data is gone. To preserve, set
 
 ---
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 **Server refuses to start: `MANAGED_NAMESPACES is not set`**
 You must set it. Empty string is also rejected. Use a comma list: `default,production`.
 
 **`/charts` returns `forbidden` 403 errors when installing**
 The SA isn't bound to `cluster-admin`. Set `rbac.helmAdmin=true` and re-deploy
-KubeShipper, or apply the binding manually (Section 5).
+KubeShipper, or apply the binding manually (Section 6).
 
 **`/charts/preflight` says `crd:certificates.cert-manager.io installed: false`**
 The chart needs cert-manager CRDs. Install cert-manager first:

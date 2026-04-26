@@ -1,0 +1,104 @@
+{{- if .Values.ingress.enabled }}
+{{- /* ===================================================================
+       Validation — fail fast at `helm install` time on misconfiguration
+       so users never end up with a silently-broken externally-exposed
+       deployment.
+       =================================================================== */}}
+{{- if eq .Values.ingress.provider "" }}
+  {{- fail "ingress.provider must be set when ingress.enabled is true (supported: \"traefik\")" }}
+{{- end }}
+{{- if not (has .Values.ingress.provider (list "traefik")) }}
+  {{- fail (printf "ingress.provider %q is not supported yet (supported: \"traefik\")" .Values.ingress.provider) }}
+{{- end }}
+{{- if eq .Values.ingress.host "" }}
+  {{- fail "ingress.host is required when ingress.enabled is true (e.g. shipper.example.com)" }}
+{{- end }}
+{{- if and (eq .Values.ingress.provider "traefik") .Values.ingress.tls.enabled (eq .Values.ingress.tls.secretName "") (eq .Values.ingress.traefik.certResolver "") }}
+  {{- fail "ingress.tls.enabled is true but no cert source configured: set ingress.tls.secretName or ingress.traefik.certResolver" }}
+{{- end }}
+{{- if and (eq .Values.auth.token "") (eq .Values.auth.existingSecret "") (not .Values.ingress.allowUnauthenticated) }}
+  {{- fail "refusing to expose kubeshipper without authentication: set auth.token, auth.existingSecret, or ingress.allowUnauthenticated=true" }}
+{{- end }}
+
+{{- if eq .Values.ingress.provider "traefik" }}
+{{- /* ===================================================================
+       Traefik branch — two flavours: IngressRoute (CRD) or Ingress.
+       =================================================================== */}}
+
+{{- if eq .Values.ingress.traefik.kind "IngressRoute" }}
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ include "kubeshipper.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubeshipper.labels" . | nindent 4 }}
+  {{- with .Values.ingress.traefik.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  entryPoints:
+    {{- toYaml .Values.ingress.traefik.entryPoints | nindent 4 }}
+  routes:
+    - match: Host(`{{ .Values.ingress.host }}`)
+      kind: Rule
+      services:
+        - name: {{ include "kubeshipper.fullname" . }}
+          port: {{ .Values.service.port }}
+      {{- with .Values.ingress.traefik.middlewares }}
+      middlewares:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.ingress.traefik.routerOptions }}
+      {{- toYaml . | nindent 6 }}
+      {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    {{- if .Values.ingress.tls.secretName }}
+    secretName: {{ .Values.ingress.tls.secretName }}
+    {{- else if .Values.ingress.traefik.certResolver }}
+    certResolver: {{ .Values.ingress.traefik.certResolver }}
+    {{- end }}
+  {{- end }}
+
+{{- else if eq .Values.ingress.traefik.kind "Ingress" }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "kubeshipper.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubeshipper.labels" . | nindent 4 }}
+  {{- with .Values.ingress.traefik.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.traefik.ingressClassName }}
+  {{- if and .Values.ingress.tls.enabled .Values.ingress.tls.secretName }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host }}
+      secretName: {{ .Values.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "kubeshipper.fullname" . }}
+                port:
+                  number: {{ .Values.service.port }}
+
+{{- else }}
+  {{- fail (printf "ingress.traefik.kind must be \"IngressRoute\" or \"Ingress\", got %q" .Values.ingress.traefik.kind) }}
+{{- end }}
+
+{{- else }}
+  {{- fail (printf "ingress.provider %q is not supported yet (supported: \"traefik\")" .Values.ingress.provider) }}
+{{- end }}
+{{- end }}
