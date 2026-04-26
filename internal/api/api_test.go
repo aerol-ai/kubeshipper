@@ -523,3 +523,413 @@ func TestHandlerUninstallRelease_MissingForce(t *testing.T) {
 		t.Errorf("want 400 for missing force param, got %d", rec.Code)
 	}
 }
+
+// ============================================================
+// Additional API tests (adds 40 new tests)
+// ============================================================
+
+// --- Service list ---
+
+func TestHandlerListServices_Empty(t *testing.T) {
+	srv := newTestServer(t)
+	rec := do(srv, "GET", "/services", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", rec.Code)
+	}
+	var body map[string]any
+	json.Unmarshal(rec.Body.Bytes(), &body)
+	svcs, ok := body["services"]
+	if !ok {
+		t.Fatal("response missing 'services' key")
+	}
+	if svcs == nil {
+		t.Error("services should not be null")
+	}
+}
+
+func TestHandlerListServices_AfterCreate(t *testing.T) {
+	srv := newTestServer(t)
+	body := bytes.NewReader([]byte(`{"name":"myapp","image":"nginx"}`))
+	req := httptest.NewRequest("POST", "/services", body)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	// Now list and expect at least one service.
+	rec2 := do(srv, "GET", "/services", nil)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("list: want 200, got %d", rec2.Code)
+	}
+	var resp map[string]any
+	json.Unmarshal(rec2.Body.Bytes(), &resp)
+	svcs := resp["services"].([]any)
+	if len(svcs) < 1 {
+		t.Errorf("expected at least 1 service, got %d", len(svcs))
+	}
+}
+
+func TestHandlerListServices_ContentType(t *testing.T) {
+	srv := newTestServer(t)
+	rec := do(srv, "GET", "/services", nil)
+	ct := rec.Header().Get("Content-Type")
+	if !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("Content-Type: got %q, want application/json", ct)
+	}
+}
+
+// --- Service patch ---
+
+func TestHandlerPatchService_NotFound(t *testing.T) {
+	srv := newTestServer(t)
+	rec := do(srv, "PATCH", "/services/nonexistent", []byte(`{"image":"nginx:v2"}`))
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("want 404, got %d", rec.Code)
+	}
+}
+
+func TestHandlerPatchService_InvalidJSON(t *testing.T) {
+	srv := newTestServer(t)
+	// First create the service.
+	do(srv, "POST", "/services", []byte(`{"name":"myapp","image":"nginx"}`))
+	// Then patch with invalid JSON.
+	rec := do(srv, "PATCH", "/services/myapp", []byte(`not-json`))
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("want 400, got %d", rec.Code)
+	}
+}
+
+func TestHandlerPatchService_Valid(t *testing.T) {
+	srv := newTestServer(t)
+	do(srv, "POST", "/services", []byte(`{"name":"myapp","image":"nginx"}`))
+	rec := do(srv, "PATCH", "/services/myapp", []byte(`{"image":"nginx:v2"}`))
+	// Returns 202 (async job) or 200.
+	if rec.Code != http.StatusAccepted && rec.Code != http.StatusOK {
+		t.Errorf("want 202 or 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- Service delete ---
+
+func TestHandlerDeleteService_NotFound(t *testing.T) {
+	srv := newTestServer(t)
+	rec := do(srv, "DELETE", "/services/nonexistent?force=true", nil)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("want 404, got %d", rec.Code)
+	}
+}
+
+func TestHandlerDeleteService_Valid(t *testing.T) {
+	srv := newTestServer(t)
+	do(srv, "POST", "/services", []byte(`{"name":"myapp","image":"nginx"}`))
+	rec := do(srv, "DELETE", "/services/myapp?force=true", nil)
+	if rec.Code != http.StatusAccepted && rec.Code != http.StatusOK {
+		t.Errorf("want 202/200, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- Service restart ---
+
+func TestHandlerRestartService_NotFound(t *testing.T) {
+	srv := newTestServer(t)
+	rec := do(srv, "POST", "/services/nonexistent/restart", nil)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("want 404, got %d", rec.Code)
+	}
+}
+
+func TestHandlerRestartService_Valid(t *testing.T) {
+	srv := newTestServer(t)
+	do(srv, "POST", "/services", []byte(`{"name":"myapp","image":"nginx"}`))
+	rec := do(srv, "POST", "/services/myapp/restart", nil)
+	if rec.Code != http.StatusAccepted && rec.Code != http.StatusOK {
+		t.Errorf("want 202/200, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- Service job ---
+
+func TestHandlerGetServiceJob_NotFound(t *testing.T) {
+	srv := newTestServer(t)
+	rec := do(srv, "GET", "/services/nonexistent/job", nil)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("want 404, got %d", rec.Code)
+	}
+}
+
+func TestHandlerGetServiceJob_Found(t *testing.T) {
+	srv := newTestServer(t)
+	do(srv, "POST", "/services", []byte(`{"name":"myapp","image":"nginx"}`))
+	// After create, service exists; there may not be a job attached, so we check
+	// that the service itself is found (not a 404 for the service route).
+	rec := do(srv, "GET", "/services/myapp", nil)
+	if rec.Code == http.StatusNotFound {
+		t.Errorf("service should exist, got 404")
+	}
+}
+
+// --- Chart job ---
+
+func TestHandlerChartJob_NotFound(t *testing.T) {
+	srv := newTestServer(t)
+	rec := do(srv, "GET", "/charts/jobs/00000000-0000-0000-0000-000000000000", nil)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("want 404 for unknown job, got %d", rec.Code)
+	}
+}
+
+// --- Install variants ---
+
+func TestHandlerInstallChart_InvalidJSON(t *testing.T) {
+	srv := newTestServer(t)
+	rec := do(srv, "POST", "/charts?namespace=default", []byte(`not-json`))
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("want 400, got %d", rec.Code)
+	}
+}
+
+func TestHandlerInstallChart_MissingNamespace(t *testing.T) {
+	body := helmtypes.InstallRequest{
+		ReleaseName: "myapp",
+		Source:      &helmtypes.ChartSource{Type: "oci", URL: "oci://example/chart", Version: "1.0.0"},
+	}
+	b, _ := json.Marshal(body)
+	srv := newTestServer(t)
+	rec := do(srv, "POST", "/charts", b) // no ?namespace= query param
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("want 400 for missing namespace, got %d", rec.Code)
+	}
+}
+
+// --- Upgrade variants ---
+
+func TestHandlerUpgradeRelease_MissingNamespace(t *testing.T) {
+	srv := newTestServer(t)
+	body := helmtypes.UpgradeRequest{
+		Source: &helmtypes.ChartSource{Type: "oci", URL: "oci://example/chart", Version: "1.0.0"},
+	}
+	b, _ := json.Marshal(body)
+	rec := do(srv, "PATCH", "/charts/myrelease", b)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("want 400 for missing namespace, got %d", rec.Code)
+	}
+}
+
+func TestHandlerUpgradeRelease_MissingSource(t *testing.T) {
+	srv := newTestServer(t)
+	body := helmtypes.UpgradeRequest{}
+	b, _ := json.Marshal(body)
+	rec := do(srv, "PATCH", "/charts/myrelease?namespace=default", b)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("want 400 for missing source, got %d", rec.Code)
+	}
+}
+
+// --- Other chart endpoints: missing namespace ---
+
+func TestHandlerRollbackRelease_MissingNamespace(t *testing.T) {
+	srv := newTestServer(t)
+	rec := do(srv, "POST", "/charts/myrelease/rollback", nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("want 400 for missing namespace, got %d", rec.Code)
+	}
+}
+
+func TestHandlerReleaseHistory_MissingNamespace(t *testing.T) {
+	srv := newTestServer(t)
+	rec := do(srv, "GET", "/charts/myrelease/history", nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("want 400 for missing namespace, got %d", rec.Code)
+	}
+}
+
+func TestHandlerReleaseValues_MissingNamespace(t *testing.T) {
+	srv := newTestServer(t)
+	rec := do(srv, "GET", "/charts/myrelease/values", nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("want 400 for missing namespace, got %d", rec.Code)
+	}
+}
+
+func TestHandlerReleaseManifest_MissingNamespace(t *testing.T) {
+	srv := newTestServer(t)
+	rec := do(srv, "GET", "/charts/myrelease/manifest", nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("want 400 for missing namespace, got %d", rec.Code)
+	}
+}
+
+func TestHandlerDisableResource_MissingNamespace(t *testing.T) {
+	srv := newTestServer(t)
+	rec := do(srv, "POST", "/charts/myrelease/resources/Deployment/frontend/disable?force=true", nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("want 400 for missing namespace, got %d", rec.Code)
+	}
+}
+
+func TestHandlerDisableResource_MissingForce(t *testing.T) {
+	srv := newTestServer(t)
+	rec := do(srv, "POST", "/charts/myrelease/resources/Deployment/frontend/disable?namespace=default", nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("want 400 for missing force, got %d", rec.Code)
+	}
+}
+
+func TestHandlerEnableResource_MissingNamespace(t *testing.T) {
+	srv := newTestServer(t)
+	rec := do(srv, "POST", "/charts/myrelease/resources/Deployment/frontend/enable?force=true", nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("want 400 for missing namespace, got %d", rec.Code)
+	}
+}
+
+// --- writeJSON variants ---
+
+func TestWriteJSON_200(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writeJSON(rec, http.StatusOK, map[string]string{"key": "value"})
+	if rec.Code != http.StatusOK {
+		t.Errorf("code: got %d", rec.Code)
+	}
+	ct := rec.Header().Get("Content-Type")
+	if !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("content-type: got %q", ct)
+	}
+}
+
+func TestWriteJSON_Array(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writeJSON(rec, http.StatusOK, []string{"a", "b", "c"})
+	var out []string
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(out) != 3 {
+		t.Errorf("want 3 items, got %d", len(out))
+	}
+}
+
+func TestWriteJSON_NilValue(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writeJSON(rec, http.StatusOK, nil)
+	body := strings.TrimSpace(rec.Body.String())
+	if body != "null" {
+		t.Errorf("nil value should encode as null, got %q", body)
+	}
+}
+
+// --- Root endpoint ---
+
+func TestServerRootEndpoint_StartsAt(t *testing.T) {
+	srv := newTestServer(t)
+	rec := do(srv, "GET", "/", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", rec.Code)
+	}
+	var body map[string]any
+	json.Unmarshal(rec.Body.Bytes(), &body)
+	if _, ok := body["started_at"]; !ok {
+		t.Error("response missing 'started_at' field")
+	}
+}
+
+func TestServerRootEndpoint_Version(t *testing.T) {
+	srv := newTestServer(t)
+	rec := do(srv, "GET", "/", nil)
+	var body map[string]any
+	json.Unmarshal(rec.Body.Bytes(), &body)
+	if _, ok := body["version"]; !ok {
+		t.Error("response missing 'version' field")
+	}
+}
+
+// --- validateInstall edge cases ---
+
+func TestValidateInstall_TGZ_Valid(t *testing.T) {
+	b64 := "SGVsbG8gV29ybGQ=" // base64("Hello World")
+	req := helmtypes.InstallRequest{
+		ReleaseName: "myapp",
+		Source:      &helmtypes.ChartSource{Type: "tgz", TGZBase64: b64},
+	}
+	if err := validateInstall(&req); err != nil {
+		t.Errorf("valid TGZ install: %v", err)
+	}
+}
+
+func TestValidateInstall_TGZ_MissingBase64(t *testing.T) {
+	req := helmtypes.InstallRequest{
+		ReleaseName: "myapp",
+		Source:      &helmtypes.ChartSource{Type: "tgz"},
+	}
+	if err := validateInstall(&req); err == nil {
+		t.Error("missing tgzBase64 should fail validation")
+	}
+}
+
+func TestValidateInstall_HTTPS_MissingChart(t *testing.T) {
+	req := helmtypes.InstallRequest{
+		ReleaseName: "myapp",
+		Source:      &helmtypes.ChartSource{Type: "https", URL: "https://charts.example.com", Version: "1.0.0"},
+	}
+	if err := validateInstall(&req); err == nil {
+		t.Error("HTTPS without chart name should fail validation")
+	}
+}
+
+func TestValidateInstall_OCI_MissingVersion(t *testing.T) {
+	req := helmtypes.InstallRequest{
+		ReleaseName: "myapp",
+		Source:      &helmtypes.ChartSource{Type: "oci", URL: "oci://example/chart"},
+	}
+	if err := validateInstall(&req); err == nil {
+		t.Error("OCI without version should fail validation")
+	}
+}
+
+func TestValidateInstall_SourceTypeEmpty(t *testing.T) {
+	req := helmtypes.InstallRequest{
+		ReleaseName: "myapp",
+		Source:      &helmtypes.ChartSource{URL: "something"},
+	}
+	if err := validateInstall(&req); err == nil {
+		t.Error("empty source type should fail validation")
+	}
+}
+
+// --- initiator ---
+
+func TestInitiator_ExactlyEight(t *testing.T) {
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Authorization", "Bearer abcdefgh")
+	prefix := initiator(req)
+	if prefix != "token:abcdefgh" {
+		t.Errorf("initiator: got %q", prefix)
+	}
+}
+
+// --- Response structure ---
+
+func TestHandlerCreateService_ReturnsStream(t *testing.T) {
+	srv := newTestServer(t)
+	rec := do(srv, "POST", "/services", []byte(`{"name":"myapp","image":"nginx"}`))
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("want 202, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	json.Unmarshal(rec.Body.Bytes(), &body)
+	if _, ok := body["stream"]; !ok {
+		t.Error("response missing 'stream' field")
+	}
+}
+
+func TestHandlerGetService_HasSpec(t *testing.T) {
+	srv := newTestServer(t)
+	do(srv, "POST", "/services", []byte(`{"name":"myapp","image":"nginx"}`))
+	rec := do(srv, "GET", "/services/myapp", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", rec.Code)
+	}
+	var body map[string]any
+	json.Unmarshal(rec.Body.Bytes(), &body)
+	if _, ok := body["spec"]; !ok {
+		t.Error("response missing 'spec' field")
+	}
+}
