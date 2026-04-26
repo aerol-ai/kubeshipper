@@ -1,0 +1,240 @@
+suite: ingress
+templates:
+  - templates/ingress.yaml
+
+tests:
+  # ---- disabled (default) --------------------------------------------------
+
+  - it: renders no resources when ingress is disabled
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # ---- validation failures -------------------------------------------------
+
+  - it: fails when provider is missing
+    set:
+      ingress.enabled: true
+      ingress.host: shipper.example.com
+      ingress.provider: ""
+      auth.token: secret
+    asserts:
+      - failedTemplate:
+          errorMessage: "ingress.provider must be set when ingress.enabled is true (supported: \"traefik\")"
+
+  - it: fails when host is missing
+    set:
+      ingress.enabled: true
+      ingress.provider: traefik
+      ingress.host: ""
+      auth.token: secret
+    asserts:
+      - failedTemplate:
+          errorMessage: "ingress.host is required when ingress.enabled is true (e.g. shipper.example.com)"
+
+  - it: fails when TLS enabled but no cert source provided
+    set:
+      ingress.enabled: true
+      ingress.provider: traefik
+      ingress.host: shipper.example.com
+      ingress.tls.enabled: true
+      ingress.tls.secretName: ""
+      ingress.traefik.certResolver: ""
+      auth.token: secret
+    asserts:
+      - failedTemplate:
+          errorMessage: "ingress.tls.enabled is true but no cert source configured: set ingress.tls.secretName or ingress.traefik.certResolver"
+
+  - it: fails when no auth and allowUnauthenticated is false
+    set:
+      ingress.enabled: true
+      ingress.provider: traefik
+      ingress.host: shipper.example.com
+      ingress.tls.secretName: shipper-tls
+      auth.token: ""
+      auth.existingSecret: ""
+      ingress.allowUnauthenticated: false
+    asserts:
+      - failedTemplate:
+          errorMessage: "refusing to expose kubeshipper without authentication: set auth.token, auth.existingSecret, or ingress.allowUnauthenticated=true"
+
+  # ---- Traefik IngressRoute ------------------------------------------------
+
+  - it: renders a Traefik IngressRoute with default traefik settings
+    set:
+      ingress.enabled: true
+      ingress.provider: traefik
+      ingress.host: shipper.example.com
+      ingress.traefik.certResolver: letsencrypt
+      auth.token: secret
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: IngressRoute
+      - equal:
+          path: apiVersion
+          value: traefik.io/v1alpha1
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-kubeshipper
+
+  - it: IngressRoute uses the configured host as the match rule
+    set:
+      ingress.enabled: true
+      ingress.provider: traefik
+      ingress.host: shipper.example.com
+      ingress.traefik.certResolver: letsencrypt
+      auth.token: secret
+    asserts:
+      - equal:
+          path: spec.routes[0].match
+          value: "Host(`shipper.example.com`)"
+
+  - it: IngressRoute routes to the kubeshipper service on the configured port
+    set:
+      ingress.enabled: true
+      ingress.provider: traefik
+      ingress.host: shipper.example.com
+      ingress.traefik.certResolver: letsencrypt
+      auth.token: secret
+    asserts:
+      - equal:
+          path: spec.routes[0].services[0].name
+          value: RELEASE-NAME-kubeshipper
+      - equal:
+          path: spec.routes[0].services[0].port
+          value: 3000
+
+  - it: IngressRoute uses certResolver for TLS
+    set:
+      ingress.enabled: true
+      ingress.provider: traefik
+      ingress.host: shipper.example.com
+      ingress.traefik.certResolver: letsencrypt
+      auth.token: secret
+    asserts:
+      - equal:
+          path: spec.tls.certResolver
+          value: letsencrypt
+
+  - it: IngressRoute uses secretName for TLS when provided
+    set:
+      ingress.enabled: true
+      ingress.provider: traefik
+      ingress.host: shipper.example.com
+      ingress.tls.secretName: shipper-tls
+      auth.token: secret
+    asserts:
+      - equal:
+          path: spec.tls.secretName
+          value: shipper-tls
+
+  - it: IngressRoute includes entryPoints
+    set:
+      ingress.enabled: true
+      ingress.provider: traefik
+      ingress.host: shipper.example.com
+      ingress.traefik.certResolver: letsencrypt
+      ingress.traefik.entryPoints:
+        - websecure
+      auth.token: secret
+    asserts:
+      - contains:
+          path: spec.entryPoints
+          content: websecure
+
+  - it: IngressRoute includes middlewares when configured
+    set:
+      ingress.enabled: true
+      ingress.provider: traefik
+      ingress.host: shipper.example.com
+      ingress.traefik.certResolver: letsencrypt
+      ingress.traefik.middlewares:
+        - name: rate-limit
+          namespace: default
+      auth.token: secret
+    asserts:
+      - contains:
+          path: spec.routes[0].middlewares
+          content:
+            name: rate-limit
+            namespace: default
+
+  - it: IngressRoute allows unauthenticated when allowUnauthenticated=true
+    set:
+      ingress.enabled: true
+      ingress.provider: traefik
+      ingress.host: shipper.example.com
+      ingress.traefik.certResolver: letsencrypt
+      ingress.allowUnauthenticated: true
+      auth.token: ""
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  # ---- Traefik standard Ingress --------------------------------------------
+
+  - it: renders a standard Ingress when traefik.kind=Ingress
+    set:
+      ingress.enabled: true
+      ingress.provider: traefik
+      ingress.host: shipper.example.com
+      ingress.traefik.kind: Ingress
+      ingress.tls.secretName: shipper-tls
+      auth.token: secret
+    asserts:
+      - isKind:
+          of: Ingress
+      - equal:
+          path: apiVersion
+          value: networking.k8s.io/v1
+
+  - it: standard Ingress sets ingressClassName
+    set:
+      ingress.enabled: true
+      ingress.provider: traefik
+      ingress.host: shipper.example.com
+      ingress.traefik.kind: Ingress
+      ingress.traefik.ingressClassName: traefik
+      ingress.tls.secretName: shipper-tls
+      auth.token: secret
+    asserts:
+      - equal:
+          path: spec.ingressClassName
+          value: traefik
+
+  - it: standard Ingress routes to the kubeshipper service
+    set:
+      ingress.enabled: true
+      ingress.provider: traefik
+      ingress.host: shipper.example.com
+      ingress.traefik.kind: Ingress
+      ingress.tls.secretName: shipper-tls
+      auth.token: secret
+    asserts:
+      - equal:
+          path: spec.rules[0].host
+          value: shipper.example.com
+      - equal:
+          path: spec.rules[0].http.paths[0].backend.service.name
+          value: RELEASE-NAME-kubeshipper
+      - equal:
+          path: spec.rules[0].http.paths[0].backend.service.port.number
+          value: 3000
+
+  - it: standard Ingress includes TLS block when tls.secretName is set
+    set:
+      ingress.enabled: true
+      ingress.provider: traefik
+      ingress.host: shipper.example.com
+      ingress.traefik.kind: Ingress
+      ingress.tls.secretName: shipper-tls
+      auth.token: secret
+    asserts:
+      - equal:
+          path: spec.tls[0].hosts[0]
+          value: shipper.example.com
+      - equal:
+          path: spec.tls[0].secretName
+          value: shipper-tls

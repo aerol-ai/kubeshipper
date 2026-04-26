@@ -1,0 +1,130 @@
+suite: rbac
+templates:
+  - templates/rbac.yaml
+
+tests:
+  # ---- cluster-wide mode (default) ----------------------------------------
+
+  - it: renders ClusterRole and ClusterRoleBinding by default (clusterWide=true)
+    asserts:
+      - hasDocuments:
+          count: 2
+
+  - it: ClusterRole has the correct name (clusterWide=true)
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: ClusterRole
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-kubeshipper
+
+  - it: ClusterRole grants required verbs on deployments
+    documentIndex: 0
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["apps"]
+            resources: ["deployments", "deployments/status"]
+            verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  - it: ClusterRole grants required verbs on core resources
+    documentIndex: 0
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["services", "pods", "pods/log", "configmaps", "secrets"]
+            verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  - it: ClusterRoleBinding binds to the correct ClusterRole
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: ClusterRoleBinding
+      - equal:
+          path: roleRef.kind
+          value: ClusterRole
+      - equal:
+          path: roleRef.name
+          value: RELEASE-NAME-kubeshipper
+
+  - it: ClusterRoleBinding references the correct ServiceAccount
+    documentIndex: 1
+    asserts:
+      - contains:
+          path: subjects
+          content:
+            kind: ServiceAccount
+            name: RELEASE-NAME-kubeshipper
+            namespace: NAMESPACE
+
+  # ---- namespace-scoped mode -----------------------------------------------
+
+  - it: renders Role and RoleBinding for each managedNamespace (clusterWide=false)
+    set:
+      rbac.clusterWide: false
+      rbac.managedNamespaces:
+        - staging
+        - production
+    asserts:
+      - hasDocuments:
+          count: 4   # Role + RoleBinding × 2 namespaces
+
+  - it: Role is scoped to the managed namespace
+    set:
+      rbac.clusterWide: false
+      rbac.managedNamespaces:
+        - staging
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: Role
+      - equal:
+          path: metadata.namespace
+          value: staging
+
+  - it: RoleBinding is scoped to the managed namespace
+    set:
+      rbac.clusterWide: false
+      rbac.managedNamespaces:
+        - staging
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: RoleBinding
+      - equal:
+          path: metadata.namespace
+          value: staging
+
+  # ---- helmAdmin -----------------------------------------------------------
+
+  - it: adds ClusterRoleBinding to cluster-admin when helmAdmin=true (clusterWide=true)
+    set:
+      rbac.helmAdmin: true
+    asserts:
+      - hasDocuments:
+          count: 3   # helm-admin ClusterRoleBinding + ClusterRole + ClusterRoleBinding
+
+  - it: helm-admin ClusterRoleBinding binds to cluster-admin
+    set:
+      rbac.helmAdmin: true
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: ClusterRoleBinding
+      - equal:
+          path: roleRef.name
+          value: cluster-admin
+
+  - it: adds only the helm-admin ClusterRoleBinding when helmAdmin=true and clusterWide=false
+    set:
+      rbac.helmAdmin: true
+      rbac.clusterWide: false
+      rbac.managedNamespaces:
+        - default
+    asserts:
+      - hasDocuments:
+          count: 3   # helm-admin CRB + Role + RoleBinding (one namespace)
