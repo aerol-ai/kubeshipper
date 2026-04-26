@@ -1,63 +1,35 @@
-# ---- helmd-build: compile the Go sidecar that wraps the Helm SDK ----
-FROM golang:1.22-alpine AS helmd-build
+# ---- build ----
+FROM golang:1.22-alpine AS build
 
-RUN apk add --no-cache git protoc protobuf-dev
+RUN apk add --no-cache git ca-certificates
 
 WORKDIR /src
 
-# Fetch deps first for layer caching.
-COPY helmd/go.mod helmd/go.sum* helmd/
-RUN cd helmd && go mod download || true
+COPY go.mod go.sum* ./
+RUN go mod download || true
 
-# Bring in the rest of the Go source + proto.
-COPY helmd/ helmd/
+COPY . .
 
-# Generate protobuf stubs into helmd/gen.
-RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.34.2 \
-    && go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1
-ENV PATH=$PATH:/root/go/bin
-RUN mkdir -p helmd/gen \
-    && protoc \
-        --go_out=helmd/gen --go_opt=paths=source_relative \
-        --go-grpc_out=helmd/gen --go-grpc_opt=paths=source_relative \
-        -I helmd/proto helmd/proto/helmd.proto \
-    && cd helmd && go mod tidy
+# Pure-Go SQLite (modernc.org/sqlite) means CGO_ENABLED=0 works fine.
+RUN CGO_ENABLED=0 go mod tidy && \
+    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/kubeshipper .
 
-RUN cd helmd && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/helmd .
+# ---- runtime ----
+FROM alpine:3.20
 
-# ---- ts-deps: install runtime node_modules ----
-FROM oven/bun:1-alpine AS ts-deps
-WORKDIR /app
-COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile --production
+RUN apk add --no-cache tini ca-certificates && \
+    addgroup -g 1000 ks && adduser -u 1000 -G ks -D ks
 
-# ---- runtime image ----
-FROM oven/bun:1-alpine
+COPY --from=build /out/kubeshipper /usr/local/bin/kubeshipper
 
-# tini for sane signal forwarding (so SIGTERM gracefully stops both bun and helmd)
-RUN apk add --no-cache tini
+RUN mkdir -p /data && chown ks:ks /data
 
-WORKDIR /app
+USER ks
 
-COPY --from=ts-deps /app/node_modules ./node_modules
-COPY --from=helmd-build /out/helmd /usr/local/bin/helmd
-
-COPY src/ ./src/
-COPY helmd/proto/ ./helmd/proto/
-COPY tsconfig.json ./
-COPY scripts/start.sh /start.sh
-RUN chmod +x /start.sh
-
-RUN mkdir -p /data && chown bun:bun /data
+ENV PORT=3000 \
+    DB_PATH=/data/kubeshipper.sqlite
 
 EXPOSE 3000
 
-ENV PORT=3000 \
-    DB_PATH=/data/kubeshipper.sqlite \
-    HELMD_SOCKET=/tmp/helmd.sock \
-    HELMD_PROTO=/app/helmd/proto/helmd.proto
-
-USER bun
-
 ENTRYPOINT ["/sbin/tini", "--"]
-CMD ["/start.sh"]
+CMD ["/usr/local/bin/kubeshipper"]
