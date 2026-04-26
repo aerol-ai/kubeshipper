@@ -49,19 +49,28 @@ storage:
 # RBAC
 # ---------------------------------------------------------------------------
 rbac:
-  # clusterWide: true  → ClusterRole + ClusterRoleBinding
-  #                       kubeshipper can deploy to ANY namespace.
-  #
-  # clusterWide: false → Role + RoleBinding per namespace
-  #                       kubeshipper can only deploy to namespaces listed
-  #                       in managedNamespaces below. This is the recommended
-  #                       setting for production multi-tenant clusters.
+  # clusterWide controls /services RBAC.
+  #   clusterWide: true  → ClusterRole + ClusterRoleBinding
+  #                         kubeshipper can deploy to ANY namespace.
+  #   clusterWide: false → Role + RoleBinding per namespace
+  #                         kubeshipper can only deploy to namespaces listed
+  #                         in managedNamespaces below. Recommended for prod.
   clusterWide: true
 
   # Used only when clusterWide is false.
   # List every namespace kubeshipper is allowed to manage workloads in.
   managedNamespaces:
     - default
+
+  # helmAdmin controls /charts RBAC.
+  #   helmAdmin: false → /charts will fail to install charts that contain
+  #                       CRDs, cluster-scoped resources, or multi-namespace
+  #                       resources (which is most non-trivial charts).
+  #   helmAdmin: true  → binds the service account to cluster-admin so
+  #                       /charts can install arbitrary Helm charts.
+  # Set to true only if you trust everyone with /charts API access — the
+  # API key effectively grants cluster-admin via Helm chart contents.
+  helmAdmin: false
 
 # ---------------------------------------------------------------------------
 # Managed namespace — where kubeshipper deploys workloads by default

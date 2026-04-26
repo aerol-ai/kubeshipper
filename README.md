@@ -1,6 +1,11 @@
 # KubeShipper
 
-A lightweight HTTP API service that manages Kubernetes workloads. Send a JSON spec; KubeShipper converts it into Deployments, Services, Ingresses, ConfigMaps, and Secrets and applies them via server-side apply.
+A lightweight HTTP API service that manages Kubernetes workloads. Two APIs:
+
+- **`/services`** — send a JSON spec, KubeShipper produces Deployment + Service + Ingress and applies via server-side apply.
+- **`/charts`** — drive the Helm v3 SDK over HTTP: install / upgrade / uninstall / rollback / disable individual chart resources, with SSE progress streaming.
+
+Single Go binary, single SQLite file for local state, no sidecars.
 
 ## Table of Contents
 
@@ -16,6 +21,8 @@ A lightweight HTTP API service that manages Kubernetes workloads. Send a JSON sp
 
 ## API Reference
 
+### `/services` — JSON-spec deployments
+
 | Method | Path | Description |
 |--------|------|-------------|
 | `POST` | `/services` | Deploy a new service |
@@ -26,7 +33,31 @@ A lightweight HTTP API service that manages Kubernetes workloads. Send a JSON sp
 | `POST` | `/services/:id/restart` | Rolling restart without image change |
 | `GET` | `/services/:id/logs` | Stream live pod logs |
 | `GET` | `/services/:id/events` | Get deployment event history |
-| `GET` | `/health` | Liveness/readiness check (always public) |
+
+### `/charts` — Helm chart management
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/charts` | Install a chart (returns 202 + jobId + SSE URL) |
+| `GET` | `/charts` | Live list from Helm |
+| `POST` | `/charts/preflight` | Run checks without installing |
+| `GET` | `/charts/:release?namespace=` | Release detail + values + manifest + disabled list |
+| `PATCH` | `/charts/:release?namespace=` | Upgrade (auto drift-resync) |
+| `DELETE` | `/charts/:release?namespace=&force=true` | Uninstall + reap PVCs |
+| `POST` | `/charts/:release/rollback?namespace=` | Roll back to revision |
+| `GET` | `/charts/:release/history\|values\|manifest?namespace=` | Read paths |
+| `POST` | `/charts/:release/resources/:kind/:name/disable?namespace=&force=true` | Strip a single resource via post-renderer |
+| `POST` | `/charts/:release/resources/:kind/:name/enable?namespace=` | Re-add a stripped resource |
+| `GET` | `/charts/jobs/:jobId\|/stream` | Job state + SSE event stream |
+
+`/charts` supports four chart sources: OCI registries (incl. private GHCR), classic HTTPS Helm repos, git URLs, and uploaded `.tgz`. Credentials are supplied per-request and never persisted. See `docs/charts-api.md` for full payload examples.
+
+### Always-public
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/health` | Liveness/readiness check |
+| `GET` | `/` | Service info |
 
 ### Example request body
 
@@ -49,30 +80,39 @@ A lightweight HTTP API service that manages Kubernetes workloads. Send a JSON sp
 
 ### Authentication
 
-When `AUTH_TOKEN` is set, all `/services` endpoints require:
+When `AUTH_TOKEN` is set, all `/services` and `/charts` endpoints require:
 
 ```
 Authorization: Bearer <your-token>
 ```
 
-`/health` is always public (used by K8s liveness/readiness probes).
+`/health` and `/` are always public (used by K8s probes).
 
 ---
 
 ## Running Locally
 
+Requirements: **Go 1.22+** and a kubeconfig.
+
 ```bash
-# 1. Install dependencies
-bun install
+# 1. Resolve dependencies (one-time)
+go mod tidy
 
 # 2. Copy and edit the env file
 cp .env.example .env
 
-# 3. Start the server (connects to your current kubectl context)
-bun run src/index.ts
+# 3. Start the server (uses your current kubectl context)
+MANAGED_NAMESPACES=default go run .
 ```
 
-The server starts on `http://localhost:3000`. Your local `~/.kube/config` is used automatically.
+The server starts on `http://localhost:3000`. Your local `~/.kube/config` is used automatically when running outside a cluster.
+
+Quick smoke test:
+
+```bash
+curl http://localhost:3000/health
+curl http://localhost:3000/charts        # lists Helm releases in your current cluster
+```
 
 ---
 
@@ -83,7 +123,9 @@ The server starts on `http://localhost:3000`. Your local `~/.kube/config` is use
 | `PORT` | `3000` | HTTP port the server listens on |
 | `AUTH_TOKEN` | _(unset)_ | Bearer token for API auth. Leave unset to disable auth (dev mode). |
 | `DB_PATH` | `kubeshipper.sqlite` | Path to the SQLite database file. Point at a PVC mount in Kubernetes. |
-| `MANAGED_NAMESPACE` | `default` | Kubernetes namespace where workloads are deployed. Must match your RBAC configuration. |
+| `MANAGED_NAMESPACES` | _(required)_ | Comma-separated allow-list of namespaces `/services` may deploy into. The server refuses to start if unset. Example: `default,production,staging`. |
+| `APP_VERSION` | `dev` | Returned by `/health` for diagnostics. Usually injected by CI from the git SHA. |
+| `KUBECONFIG` | _(unset)_ | Path to a kubeconfig file. Falls back to in-cluster service account when unset. |
 
 ---
 
@@ -130,11 +172,24 @@ helm uninstall kubeshipper --namespace kubeshipper
 | `auth.existingSecret` | `""` | Use a pre-existing K8s Secret instead of creating one. Must have key `auth-token`. |
 | `storage.size` | `1Gi` | PVC size for SQLite |
 | `storage.storageClass` | `""` | StorageClass name. Empty = cluster default. |
-| `managedNamespace` | `default` | Namespace where workloads are deployed |
-| `rbac.clusterWide` | `true` | `true` = ClusterRole (any namespace). `false` = Role per namespace (restricted). |
-| `rbac.managedNamespaces` | `["default"]` | Namespaces to create Roles in when `clusterWide` is `false`. |
+| `rbac.clusterWide` | `true` | Controls `/services` RBAC. `true` = ClusterRole (any namespace). `false` = Role per namespace. |
+| `rbac.managedNamespaces` | `["default"]` | Namespaces `/services` may deploy into. Drives the `MANAGED_NAMESPACES` env. |
+| `rbac.helmAdmin` | `false` | Required for `/charts`. Binds the SA to `cluster-admin` so Helm can install charts containing CRDs / cluster-scoped resources. |
 | `replicaCount` | `1` | **Do not increase.** SQLite requires a single writer. |
 | `service.type` | `ClusterIP` | K8s Service type for KubeShipper's own API |
+
+#### Enabling `/charts`
+
+`/charts` lets the API install Helm charts (including charts that contain `ClusterIssuer`, CRDs, multi-namespace resources). Those need cluster-scoped privileges that the default RBAC does not grant. Set `rbac.helmAdmin=true` to bind a `ClusterRoleBinding` to `cluster-admin`:
+
+```bash
+helm install kubeshipper ./helm-chart \
+  --namespace kubeshipper --create-namespace \
+  --set auth.token=your-secret-token \
+  --set rbac.helmAdmin=true
+```
+
+> ⚠️ Setting `helmAdmin=true` makes `AUTH_TOKEN` cluster-admin-equivalent — the holder can install any Helm chart, which can create any Kubernetes resource. Keep the token tightly held.
 
 ### Namespace-scoped Helm install
 
@@ -219,7 +274,7 @@ If the secret doesn't exist, the API runs without authentication.
 ### Step 4 — Deploy KubeShipper
 
 ```bash
-# Edit k8s/deployment.yaml: set image, MANAGED_NAMESPACE, etc.
+# Edit k8s/deployment.yaml: set image, MANAGED_NAMESPACES, etc.
 kubectl apply -f k8s/deployment.yaml
 ```
 
@@ -246,7 +301,9 @@ kubectl port-forward svc/kubeshipper 3000:3000
 
 ## Required Kubernetes Permissions
 
-KubeShipper needs the following permissions to operate. These are created automatically by `k8s/rbac.yaml` or the Helm chart:
+`/services` needs only the narrow, namespace-scoped permissions below. `/charts` needs `cluster-admin` because Helm charts can include CRDs, cluster-scoped resources, and resources in multiple namespaces.
+
+### `/services` (default RBAC)
 
 | API Group | Resources | Verbs | Why |
 |-----------|-----------|-------|-----|
@@ -259,7 +316,11 @@ KubeShipper needs the following permissions to operate. These are created automa
 | `networking.k8s.io` | `ingresses` | get, list, watch, create, update, patch, delete | Expose services publicly via `"public": true` |
 | `batch` | `jobs`, `cronjobs` | get, list, watch, create, update, patch, delete | One-off Jobs (`"type": "job"`) and scheduled CronJobs (`"type": "cronjob"`) |
 
-> **Note:** KubeShipper does **not** need access to Nodes, PersistentVolumes, ClusterRoles, or any cluster-level resources. Its blast radius is limited to the namespace(s) you grant it access to.
+For `/services` only, KubeShipper does **not** need access to Nodes, PersistentVolumes, ClusterRoles, or any cluster-level resources. Blast radius is limited to the namespaces in `rbac.managedNamespaces`.
+
+### `/charts` (set `rbac.helmAdmin=true`)
+
+`/charts` binds the service account to the built-in `cluster-admin` ClusterRole. This is required because any chart you install might create CRDs, ClusterIssuers, namespaces, ClusterRoles, or resources outside `rbac.managedNamespaces`. There is no narrower role that reliably covers arbitrary Helm charts. If you only need `/services`, leave `helmAdmin` off.
 
 ---
 
@@ -283,7 +344,7 @@ A RoleBinding can reference a ServiceAccount from a different namespace (kubeshi
 **1. Set the env var (in `.env` or `k8s/deployment.yaml`)**
 
 ```bash
-MANAGED_NAMESPACE=production
+MANAGED_NAMESPACES=production,staging
 ```
 
 **2. Apply namespace-scoped RBAC**
@@ -393,15 +454,36 @@ helm upgrade kubeshipper oci://ghcr.io/aerol-ai/helm/kubeshipper \
 helm install kubeshipper ./helm-chart \
   --set rbac.clusterWide=false \
   --set rbac.managedNamespaces[0]=production \
-  --set rbac.managedNamespaces[1]=staging \
-  --set managedNamespace=production
+  --set rbac.managedNamespaces[1]=staging
 ```
 
-### Current limitation
-
-KubeShipper v1 routes all API requests to a **single** `MANAGED_NAMESPACE`. Multi-namespace routing (select a different namespace per service request) is planned for v2. For now, run one KubeShipper instance per namespace if you need isolation between environments.
+`/services` requests pick the target namespace from the `namespace` field on each request body, validated against the `MANAGED_NAMESPACES` allow-list. A request for an unlisted namespace is rejected with 400.
 
 ---
+
+## Source Layout
+
+```
+main.go                     entry — boots HTTP, worker, SQLite
+internal/
+├── api/                    chi router + handlers
+│   ├── server.go           /, /health, auth gate
+│   ├── auth.go             bearer-token middleware
+│   ├── services.go         /services/* (8 endpoints)
+│   └── charts.go           /charts/* (15 endpoints, SSE)
+├── helm/                   wraps the Helm v3 SDK directly (no sidecar)
+│   ├── manager.go, install.go, upgrade.go, uninstall.go,
+│   ├── rollback.go, list_get.go, preflight.go, diff.go,
+│   ├── postrender.go       per-resource disable via Helm PostRenderer
+│   ├── prereqs.go          provisions K8s Secrets the chart depends on
+│   └── source/             oci.go, https.go, git.go, tgz.go
+├── kube/                   client-go SSA + namespace allow-list
+├── store/                  modernc.org/sqlite (pure Go, no CGO)
+│   ├── services.go, jobs.go, disabled.go, audit.go
+└── worker/                 PENDING → DEPLOYING → READY + drift
+```
+
+The Helm SDK is invoked in-process — there is no `helmd` sidecar, no gRPC, no proto file. Compiles to a single static binary (~54 MB) on alpine.
 
 ## Building the Docker Image
 
@@ -409,11 +491,11 @@ KubeShipper v1 routes all API requests to a **single** `MANAGED_NAMESPACE`. Mult
 # Local build
 docker build -t kubeshipper:local .
 
-# Run locally (uses ~/.kube/config via host network — for testing only)
+# Run locally (uses ~/.kube/config — for testing only)
 docker run --rm \
   -e AUTH_TOKEN=dev \
-  -e MANAGED_NAMESPACE=default \
-  -v ~/.kube:/home/bun/.kube:ro \
+  -e MANAGED_NAMESPACES=default \
+  -v ~/.kube:/home/ks/.kube:ro \
   -p 3000:3000 \
   kubeshipper:local
 ```

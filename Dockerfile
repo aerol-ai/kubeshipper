@@ -1,34 +1,35 @@
-# ---- deps stage: install production dependencies ----
-FROM oven/bun:1-alpine AS deps
+# ---- build ----
+FROM golang:1.22-alpine AS build
 
-WORKDIR /app
+RUN apk add --no-cache git ca-certificates
 
-# Copy only the files needed to resolve deps — leverage layer cache
-COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile --production
+WORKDIR /src
 
-# ---- runtime image ----
-FROM oven/bun:1-alpine
+COPY go.mod go.sum* ./
+RUN go mod download || true
 
-WORKDIR /app
+COPY . .
 
-# Copy installed modules from deps stage
-COPY --from=deps /app/node_modules ./node_modules
+# Pure-Go SQLite (modernc.org/sqlite) means CGO_ENABLED=0 works fine.
+RUN CGO_ENABLED=0 go mod tidy && \
+    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/kubeshipper .
 
-# Copy application source and TS config
-COPY src/ ./src/
-COPY tsconfig.json ./
+# ---- runtime ----
+FROM alpine:3.20
 
-# SQLite database lives on a mounted PersistentVolume in Kubernetes.
-# The directory is pre-created here so local runs also work without a volume.
-RUN mkdir -p /data
+RUN apk add --no-cache tini ca-certificates && \
+    addgroup -g 1000 ks && adduser -u 1000 -G ks -D ks
 
-EXPOSE 3000
+COPY --from=build /out/kubeshipper /usr/local/bin/kubeshipper
+
+RUN mkdir -p /data && chown ks:ks /data
+
+USER ks
 
 ENV PORT=3000 \
     DB_PATH=/data/kubeshipper.sqlite
 
-# Run as the unprivileged bun user (uid 1000)
-USER bun
+EXPOSE 3000
 
-CMD ["bun", "run", "src/index.ts"]
+ENTRYPOINT ["/sbin/tini", "--"]
+CMD ["/usr/local/bin/kubeshipper"]
