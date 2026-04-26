@@ -23,19 +23,13 @@ type Service struct {
 	LastReadySpec     json.RawMessage `json:"-"`
 	CreatedAt         time.Time       `json:"created_at"`
 	UpdatedAt         time.Time       `json:"updated_at"`
-}
-
-type ServiceEvent struct {
-	ID        int64     `json:"id"`
-	ServiceID string    `json:"service_id"`
-	Type      string    `json:"type"`
-	Message   string    `json:"message"`
-	Timestamp time.Time `json:"timestamp"`
+	// JobID — the streaming job currently driving this row. Cleared on terminal.
+	JobID             string          `json:"job_id,omitempty"`
 }
 
 func (s *Store) GetService(id string) (*Service, error) {
 	row := s.DB.QueryRow(
-		`SELECT id, spec_json, status, last_ready_spec_json, created_at, updated_at FROM services WHERE id = ?`,
+		`SELECT id, spec_json, status, last_ready_spec_json, created_at, updated_at, job_id FROM services WHERE id = ?`,
 		id,
 	)
 	return scanService(row)
@@ -43,7 +37,7 @@ func (s *Store) GetService(id string) (*Service, error) {
 
 func (s *Store) ListServices() ([]*Service, error) {
 	rows, err := s.DB.Query(
-		`SELECT id, spec_json, status, last_ready_spec_json, created_at, updated_at FROM services ORDER BY created_at DESC`,
+		`SELECT id, spec_json, status, last_ready_spec_json, created_at, updated_at, job_id FROM services ORDER BY created_at DESC`,
 	)
 	if err != nil {
 		return nil, err
@@ -95,9 +89,22 @@ func (s *Store) ResetStuckDeployments() error {
 	return err
 }
 
+// AttachJob links a job to a service row so the worker knows where to publish events.
+// Pass empty string to clear.
+func (s *Store) AttachJob(serviceID, jobID string) error {
+	if jobID == "" {
+		_, err := s.DB.Exec(`UPDATE services SET job_id = NULL, updated_at = ? WHERE id = ?`,
+			time.Now().UnixMilli(), serviceID)
+		return err
+	}
+	_, err := s.DB.Exec(`UPDATE services SET job_id = ?, updated_at = ? WHERE id = ?`,
+		jobID, time.Now().UnixMilli(), serviceID)
+	return err
+}
+
 func (s *Store) ServicesByStatus(status ServiceStatus) ([]*Service, error) {
 	rows, err := s.DB.Query(
-		`SELECT id, spec_json, status, last_ready_spec_json, created_at, updated_at FROM services WHERE status = ?`,
+		`SELECT id, spec_json, status, last_ready_spec_json, created_at, updated_at, job_id FROM services WHERE status = ?`,
 		string(status),
 	)
 	if err != nil {
@@ -117,42 +124,7 @@ func (s *Store) ServicesByStatus(status ServiceStatus) ([]*Service, error) {
 
 func (s *Store) DeleteService(id string) error {
 	_, err := s.DB.Exec(`DELETE FROM services WHERE id = ?`, id)
-	if err != nil {
-		return err
-	}
-	_, err = s.DB.Exec(`DELETE FROM events WHERE service_id = ?`, id)
 	return err
-}
-
-// LogEvent writes a service-level lifecycle event.
-func (s *Store) LogEvent(serviceID, typ, message string) error {
-	_, err := s.DB.Exec(
-		`INSERT INTO events (service_id, type, message, ts) VALUES (?, ?, ?, ?)`,
-		serviceID, typ, message, time.Now().UnixMilli(),
-	)
-	return err
-}
-
-func (s *Store) ServiceEvents(serviceID string) ([]ServiceEvent, error) {
-	rows, err := s.DB.Query(
-		`SELECT id, service_id, type, message, ts FROM events WHERE service_id = ? ORDER BY ts DESC LIMIT 200`,
-		serviceID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []ServiceEvent
-	for rows.Next() {
-		var ev ServiceEvent
-		var ts int64
-		if err := rows.Scan(&ev.ID, &ev.ServiceID, &ev.Type, &ev.Message, &ts); err != nil {
-			return nil, err
-		}
-		ev.Timestamp = time.UnixMilli(ts)
-		out = append(out, ev)
-	}
-	return out, rows.Err()
 }
 
 type rowScanner interface {
@@ -166,14 +138,18 @@ func scanService(r rowScanner) (*Service, error) {
 		lastReady sql.NullString
 		created   int64
 		updated   int64
+		jobID     sql.NullString
 	)
-	if err := r.Scan(&svc.ID, &spec, &svc.Status, &lastReady, &created, &updated); err != nil {
+	if err := r.Scan(&svc.ID, &spec, &svc.Status, &lastReady, &created, &updated, &jobID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
 	}
 	svc.Spec = json.RawMessage(spec)
+	if jobID.Valid {
+		svc.JobID = jobID.String
+	}
 	if lastReady.Valid {
 		svc.LastReadySpec = json.RawMessage(lastReady.String)
 	}

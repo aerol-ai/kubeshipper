@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"sync"
 
 	_ "modernc.org/sqlite"
@@ -43,14 +44,7 @@ func (s *Store) migrate() error {
 			created_at            INTEGER NOT NULL,
 			updated_at            INTEGER NOT NULL
 		)`,
-		`CREATE TABLE IF NOT EXISTS events (
-			id          INTEGER PRIMARY KEY AUTOINCREMENT,
-			service_id  TEXT NOT NULL,
-			type        TEXT NOT NULL,
-			message     TEXT NOT NULL,
-			ts          INTEGER NOT NULL
-		)`,
-		`CREATE INDEX IF NOT EXISTS events_service_idx ON events(service_id, ts DESC)`,
+		`ALTER TABLE services ADD COLUMN job_id TEXT`,
 		`CREATE TABLE IF NOT EXISTS jobs (
 			id            TEXT PRIMARY KEY,
 			release       TEXT NOT NULL,
@@ -85,6 +79,11 @@ func (s *Store) migrate() error {
 	}
 	for _, q := range stmts {
 		if _, err := s.DB.Exec(q); err != nil {
+			// Tolerate ALTER TABLE re-runs against an already-migrated schema.
+			// modernc/sqlite emits "duplicate column name" for these.
+			if strings.Contains(err.Error(), "duplicate column") {
+				continue
+			}
 			return fmt.Errorf("migrate: %w (%s)", err, q[:40])
 		}
 	}
