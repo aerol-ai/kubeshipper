@@ -56,20 +56,21 @@ func (w *Worker) Run(ctx context.Context) {
 	}
 }
 
-// emit appends a service event AND, when a job is attached, publishes the same
-// event to that job's SSE pubsub. Phase mapping:
+// emit publishes a typed Event to the job's SSE pubsub when one is attached.
+// Phase mapping:
 //
-//   "Created"|"Updated"|"Restarting"        → phase: "validation"
-//   "Deploying"                              → phase: "apply"
+//   "Deploying"|"AutoRollback"               → phase: "apply"
 //   "RolloutComplete"                        → phase: "done"   (terminal: succeeded)
-//   "RolloutFailed"|"DeployFailed"           → phase: "error"  (terminal: failed)
-//   "AutoRollback"|"RollbackWarning"         → phase: "apply"
+//   "DeployFailed"|"RollbackWarning"         → phase: "error"  (terminal: failed)
+//   "RolloutFailed"                          → phase: "wait"   (rollback may follow)
 //   "DriftDetected"                          → phase: "validation"
 //
-// Terminal events also flip the linked job's status (succeeded/failed) which
-// closes the SSE stream for live subscribers.
+// Terminal phases flip the linked job's status (succeeded/failed) and detach
+// the job from the service, closing the SSE stream for live subscribers.
+//
+// Rows with no JobID (e.g. drift-triggered re-pends) are silently skipped —
+// the next operator-initiated PATCH/POST will start a fresh job.
 func (w *Worker) emit(svc *store.Service, eventType, message string) {
-	_ = w.store.LogEvent(svc.ID, eventType, message)
 	if svc.JobID == "" {
 		return
 	}
@@ -201,8 +202,10 @@ func (w *Worker) reconcileDrift(ctx context.Context) {
 			continue
 		}
 		if !status.Ready && status.Reason == "Deployment not found" {
-			w.emit(row, "DriftDetected",
-				"Service marked READY but missing in Kubernetes. Forcing re-apply.")
+			// Drift: Deployment was deleted out-of-band. Re-pend the row; the
+			// worker's processPending tick will re-apply the stored spec via SSA.
+			// No SSE events are emitted because drift handling has no client
+			// stream attached.
 			_ = w.store.UpdateStatus(row.ID, store.StatusPending)
 		}
 	}

@@ -23,18 +23,8 @@ type Service struct {
 	LastReadySpec     json.RawMessage `json:"-"`
 	CreatedAt         time.Time       `json:"created_at"`
 	UpdatedAt         time.Time       `json:"updated_at"`
-	// JobID is set when the row is the target of a streaming deploy/patch.
-	// The worker emits structured events into this job's pubsub. NULL = legacy
-	// fire-and-forget caller — worker still updates status but emits nothing.
+	// JobID — the streaming job currently driving this row. Cleared on terminal.
 	JobID             string          `json:"job_id,omitempty"`
-}
-
-type ServiceEvent struct {
-	ID        int64     `json:"id"`
-	ServiceID string    `json:"service_id"`
-	Type      string    `json:"type"`
-	Message   string    `json:"message"`
-	Timestamp time.Time `json:"timestamp"`
 }
 
 func (s *Store) GetService(id string) (*Service, error) {
@@ -134,42 +124,7 @@ func (s *Store) ServicesByStatus(status ServiceStatus) ([]*Service, error) {
 
 func (s *Store) DeleteService(id string) error {
 	_, err := s.DB.Exec(`DELETE FROM services WHERE id = ?`, id)
-	if err != nil {
-		return err
-	}
-	_, err = s.DB.Exec(`DELETE FROM events WHERE service_id = ?`, id)
 	return err
-}
-
-// LogEvent writes a service-level lifecycle event.
-func (s *Store) LogEvent(serviceID, typ, message string) error {
-	_, err := s.DB.Exec(
-		`INSERT INTO events (service_id, type, message, ts) VALUES (?, ?, ?, ?)`,
-		serviceID, typ, message, time.Now().UnixMilli(),
-	)
-	return err
-}
-
-func (s *Store) ServiceEvents(serviceID string) ([]ServiceEvent, error) {
-	rows, err := s.DB.Query(
-		`SELECT id, service_id, type, message, ts FROM events WHERE service_id = ? ORDER BY ts DESC LIMIT 200`,
-		serviceID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []ServiceEvent
-	for rows.Next() {
-		var ev ServiceEvent
-		var ts int64
-		if err := rows.Scan(&ev.ID, &ev.ServiceID, &ev.Type, &ev.Message, &ts); err != nil {
-			return nil, err
-		}
-		ev.Timestamp = time.UnixMilli(ts)
-		out = append(out, ev)
-	}
-	return out, rows.Err()
 }
 
 type rowScanner interface {

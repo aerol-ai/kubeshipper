@@ -44,16 +44,6 @@ func (s *Store) migrate() error {
 			created_at            INTEGER NOT NULL,
 			updated_at            INTEGER NOT NULL
 		)`,
-		`CREATE TABLE IF NOT EXISTS events (
-			id          INTEGER PRIMARY KEY AUTOINCREMENT,
-			service_id  TEXT NOT NULL,
-			type        TEXT NOT NULL,
-			message     TEXT NOT NULL,
-			ts          INTEGER NOT NULL
-		)`,
-		`CREATE INDEX IF NOT EXISTS events_service_idx ON events(service_id, ts DESC)`,
-		// One outstanding streaming job per service is sufficient — newer requests
-		// reuse the column. Nullable: legacy fire-and-forget callers leave it NULL.
 		`ALTER TABLE services ADD COLUMN job_id TEXT`,
 		`CREATE TABLE IF NOT EXISTS jobs (
 			id            TEXT PRIMARY KEY,
