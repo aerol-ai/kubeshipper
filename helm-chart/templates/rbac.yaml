@@ -1,3 +1,26 @@
+{{- if .Values.rbac.helmAdmin }}
+# =============================================================================
+# /charts RBAC — kubeshipper installs arbitrary Helm charts via the Helm SDK.
+# These charts can contain CRDs, ClusterIssuers, ClusterRoles, multi-namespace
+# resources, and other cluster-scoped objects, so the SA needs cluster-admin.
+# Only enable this if you fully trust everyone with API access.
+# =============================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kubeshipper.fullname" . }}-helm-admin
+  labels:
+    {{- include "kubeshipper.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kubeshipper.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+{{- end }}
 {{- if .Values.rbac.clusterWide }}
 # =============================================================================
 # Cluster-wide mode: kubeshipper can deploy workloads into ANY namespace.
