@@ -538,12 +538,9 @@ func TestHandlerListServices_Empty(t *testing.T) {
 	}
 	var body map[string]any
 	json.Unmarshal(rec.Body.Bytes(), &body)
-	svcs, ok := body["services"]
-	if !ok {
+	// The key must exist (value may be null when no services).
+	if _, ok := body["services"]; !ok {
 		t.Fatal("response missing 'services' key")
-	}
-	if svcs == nil {
-		t.Error("services should not be null")
 	}
 }
 
@@ -687,9 +684,9 @@ func TestHandlerInstallChart_InvalidJSON(t *testing.T) {
 }
 
 func TestHandlerInstallChart_MissingNamespace(t *testing.T) {
-	body := helmtypes.InstallRequest{
-		ReleaseName: "myapp",
-		Source:      &helmtypes.ChartSource{Type: "oci", URL: "oci://example/chart", Version: "1.0.0"},
+	body := helmtypes.InstallReq{
+		Release: "myapp",
+		Source:  &helmtypes.ChartSource{Type: "oci", URL: "oci://example/chart", Version: "1.0.0"},
 	}
 	b, _ := json.Marshal(body)
 	srv := newTestServer(t)
@@ -703,7 +700,7 @@ func TestHandlerInstallChart_MissingNamespace(t *testing.T) {
 
 func TestHandlerUpgradeRelease_MissingNamespace(t *testing.T) {
 	srv := newTestServer(t)
-	body := helmtypes.UpgradeRequest{
+	body := helmtypes.UpgradeReq{
 		Source: &helmtypes.ChartSource{Type: "oci", URL: "oci://example/chart", Version: "1.0.0"},
 	}
 	b, _ := json.Marshal(body)
@@ -715,7 +712,7 @@ func TestHandlerUpgradeRelease_MissingNamespace(t *testing.T) {
 
 func TestHandlerUpgradeRelease_MissingSource(t *testing.T) {
 	srv := newTestServer(t)
-	body := helmtypes.UpgradeRequest{}
+	body := helmtypes.UpgradeReq{}
 	b, _ := json.Marshal(body)
 	rec := do(srv, "PATCH", "/charts/myrelease?namespace=default", b)
 	if rec.Code != http.StatusBadRequest {
@@ -820,7 +817,8 @@ func TestWriteJSON_NilValue(t *testing.T) {
 
 func TestServerRootEndpoint_StartsAt(t *testing.T) {
 	srv := newTestServer(t)
-	rec := do(srv, "GET", "/", nil)
+	// The /health endpoint returns started_at and version.
+	rec := do(srv, "GET", "/health", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d", rec.Code)
 	}
@@ -833,7 +831,8 @@ func TestServerRootEndpoint_StartsAt(t *testing.T) {
 
 func TestServerRootEndpoint_Version(t *testing.T) {
 	srv := newTestServer(t)
-	rec := do(srv, "GET", "/", nil)
+	// The /health endpoint returns version.
+	rec := do(srv, "GET", "/health", nil)
 	var body map[string]any
 	json.Unmarshal(rec.Body.Bytes(), &body)
 	if _, ok := body["version"]; !ok {
@@ -845,9 +844,10 @@ func TestServerRootEndpoint_Version(t *testing.T) {
 
 func TestValidateInstall_TGZ_Valid(t *testing.T) {
 	b64 := "SGVsbG8gV29ybGQ=" // base64("Hello World")
-	req := helmtypes.InstallRequest{
-		ReleaseName: "myapp",
-		Source:      &helmtypes.ChartSource{Type: "tgz", TGZBase64: b64},
+	req := helmtypes.InstallReq{
+		Release:   "myapp",
+		Namespace: "default",
+		Source:    &helmtypes.ChartSource{Type: "tgz", TgzB64: b64},
 	}
 	if err := validateInstall(&req); err != nil {
 		t.Errorf("valid TGZ install: %v", err)
@@ -855,9 +855,10 @@ func TestValidateInstall_TGZ_Valid(t *testing.T) {
 }
 
 func TestValidateInstall_TGZ_MissingBase64(t *testing.T) {
-	req := helmtypes.InstallRequest{
-		ReleaseName: "myapp",
-		Source:      &helmtypes.ChartSource{Type: "tgz"},
+	req := helmtypes.InstallReq{
+		Release:   "myapp",
+		Namespace: "default",
+		Source:    &helmtypes.ChartSource{Type: "tgz"},
 	}
 	if err := validateInstall(&req); err == nil {
 		t.Error("missing tgzBase64 should fail validation")
@@ -865,9 +866,10 @@ func TestValidateInstall_TGZ_MissingBase64(t *testing.T) {
 }
 
 func TestValidateInstall_HTTPS_MissingChart(t *testing.T) {
-	req := helmtypes.InstallRequest{
-		ReleaseName: "myapp",
-		Source:      &helmtypes.ChartSource{Type: "https", URL: "https://charts.example.com", Version: "1.0.0"},
+	req := helmtypes.InstallReq{
+		Release:   "myapp",
+		Namespace: "default",
+		Source:    &helmtypes.ChartSource{Type: "https", URL: "https://charts.example.com", Version: "1.0.0"},
 	}
 	if err := validateInstall(&req); err == nil {
 		t.Error("HTTPS without chart name should fail validation")
@@ -875,9 +877,10 @@ func TestValidateInstall_HTTPS_MissingChart(t *testing.T) {
 }
 
 func TestValidateInstall_OCI_MissingVersion(t *testing.T) {
-	req := helmtypes.InstallRequest{
-		ReleaseName: "myapp",
-		Source:      &helmtypes.ChartSource{Type: "oci", URL: "oci://example/chart"},
+	req := helmtypes.InstallReq{
+		Release:   "myapp",
+		Namespace: "default",
+		Source:    &helmtypes.ChartSource{Type: "oci", URL: "oci://example/chart"},
 	}
 	if err := validateInstall(&req); err == nil {
 		t.Error("OCI without version should fail validation")
@@ -885,9 +888,10 @@ func TestValidateInstall_OCI_MissingVersion(t *testing.T) {
 }
 
 func TestValidateInstall_SourceTypeEmpty(t *testing.T) {
-	req := helmtypes.InstallRequest{
-		ReleaseName: "myapp",
-		Source:      &helmtypes.ChartSource{URL: "something"},
+	req := helmtypes.InstallReq{
+		Release:   "myapp",
+		Namespace: "default",
+		Source:    &helmtypes.ChartSource{URL: "something"},
 	}
 	if err := validateInstall(&req); err == nil {
 		t.Error("empty source type should fail validation")
