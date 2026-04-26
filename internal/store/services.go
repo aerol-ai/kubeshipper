@@ -23,6 +23,10 @@ type Service struct {
 	LastReadySpec     json.RawMessage `json:"-"`
 	CreatedAt         time.Time       `json:"created_at"`
 	UpdatedAt         time.Time       `json:"updated_at"`
+	// JobID is set when the row is the target of a streaming deploy/patch.
+	// The worker emits structured events into this job's pubsub. NULL = legacy
+	// fire-and-forget caller — worker still updates status but emits nothing.
+	JobID             string          `json:"job_id,omitempty"`
 }
 
 type ServiceEvent struct {
@@ -35,7 +39,7 @@ type ServiceEvent struct {
 
 func (s *Store) GetService(id string) (*Service, error) {
 	row := s.DB.QueryRow(
-		`SELECT id, spec_json, status, last_ready_spec_json, created_at, updated_at FROM services WHERE id = ?`,
+		`SELECT id, spec_json, status, last_ready_spec_json, created_at, updated_at, job_id FROM services WHERE id = ?`,
 		id,
 	)
 	return scanService(row)
@@ -43,7 +47,7 @@ func (s *Store) GetService(id string) (*Service, error) {
 
 func (s *Store) ListServices() ([]*Service, error) {
 	rows, err := s.DB.Query(
-		`SELECT id, spec_json, status, last_ready_spec_json, created_at, updated_at FROM services ORDER BY created_at DESC`,
+		`SELECT id, spec_json, status, last_ready_spec_json, created_at, updated_at, job_id FROM services ORDER BY created_at DESC`,
 	)
 	if err != nil {
 		return nil, err
@@ -95,9 +99,22 @@ func (s *Store) ResetStuckDeployments() error {
 	return err
 }
 
+// AttachJob links a job to a service row so the worker knows where to publish events.
+// Pass empty string to clear.
+func (s *Store) AttachJob(serviceID, jobID string) error {
+	if jobID == "" {
+		_, err := s.DB.Exec(`UPDATE services SET job_id = NULL, updated_at = ? WHERE id = ?`,
+			time.Now().UnixMilli(), serviceID)
+		return err
+	}
+	_, err := s.DB.Exec(`UPDATE services SET job_id = ?, updated_at = ? WHERE id = ?`,
+		jobID, time.Now().UnixMilli(), serviceID)
+	return err
+}
+
 func (s *Store) ServicesByStatus(status ServiceStatus) ([]*Service, error) {
 	rows, err := s.DB.Query(
-		`SELECT id, spec_json, status, last_ready_spec_json, created_at, updated_at FROM services WHERE status = ?`,
+		`SELECT id, spec_json, status, last_ready_spec_json, created_at, updated_at, job_id FROM services WHERE status = ?`,
 		string(status),
 	)
 	if err != nil {
@@ -166,14 +183,18 @@ func scanService(r rowScanner) (*Service, error) {
 		lastReady sql.NullString
 		created   int64
 		updated   int64
+		jobID     sql.NullString
 	)
-	if err := r.Scan(&svc.ID, &spec, &svc.Status, &lastReady, &created, &updated); err != nil {
+	if err := r.Scan(&svc.ID, &spec, &svc.Status, &lastReady, &created, &updated, &jobID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
 	}
 	svc.Spec = json.RawMessage(spec)
+	if jobID.Valid {
+		svc.JobID = jobID.String
+	}
 	if lastReady.Valid {
 		svc.LastReadySpec = json.RawMessage(lastReady.String)
 	}

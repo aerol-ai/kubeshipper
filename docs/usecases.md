@@ -97,6 +97,58 @@ curl -X PATCH $KS/services/echo \
 The merge logic in `internal/kube/spec.go` preserves any field the patch omits.
 The worker re-applies via SSA and Kubernetes does a rolling update.
 
+### UC-2.5. Stream a deploy / patch in real time (SSE)
+
+Add `?stream=true` to `POST /services` or `PATCH /services/:id`. The response
+shape changes from `{ id, status }` to `{ id, jobId, status, stream }`. Open
+the `stream` URL with an EventSource client (or `curl -N`) to watch progress
+live until the rollout terminates.
+
+```bash
+RESP=$(curl -s -X POST "$KS/services?stream=true" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "echo",
+    "image": "ealen/echo-server:latest",
+    "port": 80,
+    "replicas": 2,
+    "namespace": "default"
+  }')
+
+JOB=$(echo "$RESP" | jq -r .jobId)
+
+curl -N -H "Authorization: Bearer $TOKEN" "$KS/services/jobs/$JOB/stream"
+```
+
+Output (one event per worker phase transition):
+
+```
+data: {"phase":"validation","message":"Service create requested via API","ts":...}
+data: {"phase":"apply","message":"Deploying: Worker picked up deployment task and started SSA","ts":...}
+data: {"phase":"done","message":"RolloutComplete: Deployment rollout successfully finished and is Ready","ts":...}
+data: {"phase":"complete","message":"succeeded","ts":...}
+```
+
+Phase semantics for `/services` jobs:
+
+| Phase | Trigger |
+|---|---|
+| `validation` | Job created (request accepted) |
+| `apply` | Worker started SSA (`Deploying`) or initiated rollback (`AutoRollback`) |
+| `wait` | Soft failure detected; rollback may run (`RolloutFailed`) |
+| `done` | Pods are ready (`RolloutComplete`) — terminal: succeeded |
+| `error` | Hard failure (`DeployFailed`/`RollbackWarning`) — terminal: failed |
+| `complete` | Final marker emitted by the job runtime |
+
+Reconnecting to the same `/services/jobs/:id/stream` URL replays everything
+from the persisted `events_jsonl` then continues live — useful for clients that
+disconnect mid-deploy.
+
+Without `?stream=true`, `POST /services` and `PATCH /services/:id` keep their
+original behavior (return `{id, status}`, no job, no SSE) — existing callers
+are unaffected.
+
 ### UC-3. Restart a service without changing the spec
 
 Useful when the image tag is mutable (`:latest`) and the registry has a fresh

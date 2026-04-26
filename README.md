@@ -25,14 +25,16 @@ Single Go binary, single SQLite file for local state, no sidecars.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/services` | Deploy a new service |
+| `POST` | `/services` | Deploy a new service. Add `?stream=true` for SSE progress (returns `jobId` + stream URL) |
 | `GET` | `/services` | List all services |
 | `GET` | `/services/:id` | Get a service + live K8s status |
-| `PATCH` | `/services/:id` | Update a service spec |
+| `PATCH` | `/services/:id` | Update a service spec. Add `?stream=true` for SSE progress |
 | `DELETE` | `/services/:id` | Tear down a service and all its K8s resources |
 | `POST` | `/services/:id/restart` | Rolling restart without image change |
 | `GET` | `/services/:id/logs` | Stream live pod logs |
-| `GET` | `/services/:id/events` | Get deployment event history |
+| `GET` | `/services/:id/events` | Get deployment event history (lifecycle audit log) |
+| `GET` | `/services/jobs/:jobId` | Streaming-job state + accumulated events |
+| `GET` | `/services/jobs/:jobId/stream` | Server-Sent Events for a deploy/patch job |
 
 ### `/charts` — Helm chart management
 

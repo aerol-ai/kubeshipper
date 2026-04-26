@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 
@@ -15,6 +16,12 @@ func (s *Server) mountServices(r chi.Router) {
 	r.Route("/services", func(g chi.Router) {
 		g.Post("/", s.createService)
 		g.Get("/", s.listServices)
+
+		// Service-job streaming endpoints — these must be registered BEFORE
+		// the "/{id}" routes or chi will route /jobs/{id} into getService.
+		g.Get("/jobs/{id}", s.getServiceJob)
+		g.Get("/jobs/{id}/stream", s.streamServiceJob)
+
 		g.Get("/{id}", s.getService)
 		g.Patch("/{id}", s.patchService)
 		g.Delete("/{id}", s.deleteService)
@@ -32,7 +39,6 @@ func (s *Server) createService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Namespace allow-list check up-front so users get a clear error before we hit K8s.
 	if _, err := s.deps.Kube.ResolveNamespace(spec.Namespace); err != nil {
 		writeJSON(w, 400, map[string]string{"error": err.Error()})
 		return
@@ -44,7 +50,43 @@ func (s *Server) createService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = s.deps.Store.LogEvent(spec.Name, "Created", "Service deployment requested via API")
+
+	if r.URL.Query().Get("stream") == "true" {
+		jobID, err := s.attachServiceJob(spec.Name, spec.Namespace, "deploy", initiator(r), "Service create requested via API")
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, 202, map[string]string{
+			"id":     spec.Name,
+			"jobId":  jobID,
+			"status": "PENDING",
+			"stream": "/services/jobs/" + jobID + "/stream",
+		})
+		return
+	}
 	writeJSON(w, 202, map[string]string{"id": spec.Name, "status": "PENDING", "message": "accepted"})
+}
+
+// attachServiceJob creates a job row, links it to the service, and seeds an
+// initial validation event. Worker.emit takes over from there.
+func (s *Server) attachServiceJob(serviceID, namespace, op, initiator, msg string) (string, error) {
+	ns := namespace
+	if ns == "" {
+		ns = "default"
+	}
+	jobID, err := s.deps.Store.CreateJob(serviceID, ns, op, initiator)
+	if err != nil {
+		return "", err
+	}
+	if err := s.deps.Store.AttachJob(serviceID, jobID); err != nil {
+		return "", err
+	}
+	_ = s.deps.Store.SetJobStatus(jobID, store.JobRunning)
+	_ = s.deps.Store.AppendEvent(jobID, store.Event{
+		Phase: "validation", Message: msg,
+	})
+	return jobID, nil
 }
 
 func (s *Server) listServices(w http.ResponseWriter, r *http.Request) {
@@ -106,7 +148,90 @@ func (s *Server) patchService(w http.ResponseWriter, r *http.Request) {
 	raw, _ := json.Marshal(merged)
 	_ = s.deps.Store.UpsertService(id, raw, store.StatusPending)
 	_ = s.deps.Store.LogEvent(id, "Updated", "Service spec patched via API")
+
+	if r.URL.Query().Get("stream") == "true" {
+		jobID, err := s.attachServiceJob(id, merged.Namespace, "patch", initiator(r), "Service patch requested via API")
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, 202, map[string]string{
+			"id":     id,
+			"jobId":  jobID,
+			"status": "PENDING",
+			"stream": "/services/jobs/" + jobID + "/stream",
+		})
+		return
+	}
 	writeJSON(w, 202, map[string]string{"id": id, "status": "PENDING"})
+}
+
+// getServiceJob — returns full job state + accumulated events.
+// Reuses the same store.Job shape as /charts/jobs/:id.
+func (s *Server) getServiceJob(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	j, err := s.deps.Store.GetJob(id)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": err.Error()})
+		return
+	}
+	if j == nil {
+		writeJSON(w, 404, map[string]string{"error": "job not found"})
+		return
+	}
+	writeJSON(w, 200, j)
+}
+
+// streamServiceJob — SSE stream of a service deploy/patch job.
+// Replays everything from events_jsonl on connect, then streams live until
+// the worker emits a terminal phase (done/error) or the client disconnects.
+func (s *Server) streamServiceJob(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	j, _ := s.deps.Store.GetJob(id)
+	if j == nil {
+		writeJSON(w, 404, map[string]string{"error": "job not found"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeJSON(w, 500, map[string]string{"error": "streaming unsupported"})
+		return
+	}
+
+	// Replay any persisted events first so reconnecting clients see the full history.
+	for _, ev := range j.Events {
+		body, _ := json.Marshal(ev)
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", body)
+		flusher.Flush()
+	}
+	if j.Status == store.JobSucceeded || j.Status == store.JobFailed {
+		_, _ = fmt.Fprintf(w, "event: end\ndata: {\"status\":%q}\n\n", string(j.Status))
+		flusher.Flush()
+		return
+	}
+
+	ch, cancel := s.deps.Store.Subscribe(id)
+	defer cancel()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case ev, alive := <-ch:
+			if !alive {
+				return
+			}
+			body, _ := json.Marshal(ev)
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", body)
+			flusher.Flush()
+			if ev.Phase == "complete" || ev.Phase == "error" {
+				return
+			}
+		}
+	}
 }
 
 func (s *Server) deleteService(w http.ResponseWriter, r *http.Request) {

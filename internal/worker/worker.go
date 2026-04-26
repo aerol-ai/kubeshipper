@@ -17,6 +17,11 @@ import (
 //   DEPLOYING ── progress fail ─>  attempt rollback to last_ready_spec_json
 //
 // Plus a slower drift loop that re-pends services whose Deployment is missing.
+//
+// When a row carries a JobID (set by /services?stream=true callers) every
+// lifecycle event is also published to that job's pubsub so SSE consumers
+// see it in real time. Legacy fire-and-forget rows (JobID == "") behave
+// exactly as before.
 type Worker struct {
 	store *store.Store
 	kube  *kube.Client
@@ -51,6 +56,55 @@ func (w *Worker) Run(ctx context.Context) {
 	}
 }
 
+// emit appends a service event AND, when a job is attached, publishes the same
+// event to that job's SSE pubsub. Phase mapping:
+//
+//   "Created"|"Updated"|"Restarting"        → phase: "validation"
+//   "Deploying"                              → phase: "apply"
+//   "RolloutComplete"                        → phase: "done"   (terminal: succeeded)
+//   "RolloutFailed"|"DeployFailed"           → phase: "error"  (terminal: failed)
+//   "AutoRollback"|"RollbackWarning"         → phase: "apply"
+//   "DriftDetected"                          → phase: "validation"
+//
+// Terminal events also flip the linked job's status (succeeded/failed) which
+// closes the SSE stream for live subscribers.
+func (w *Worker) emit(svc *store.Service, eventType, message string) {
+	_ = w.store.LogEvent(svc.ID, eventType, message)
+	if svc.JobID == "" {
+		return
+	}
+
+	phase := "validation"
+	terminal := store.JobStatus("")
+	switch eventType {
+	case "Deploying", "AutoRollback":
+		phase = "apply"
+	case "RolloutComplete":
+		phase = "done"
+		terminal = store.JobSucceeded
+	case "DeployFailed", "RollbackWarning":
+		// Hard failures with no recovery path → terminal.
+		phase = "error"
+		terminal = store.JobFailed
+	case "RolloutFailed":
+		// Soft failure: the watcher may auto-rollback. Emit as "wait" so the
+		// stream stays open; either AutoRollback or RollbackWarning closes it.
+		phase = "wait"
+	}
+
+	ev := store.Event{Phase: phase, Message: eventType + ": " + message, TS: time.Now().UnixMilli()}
+	if phase == "error" {
+		ev.Error = message
+	}
+	_ = w.store.AppendEvent(svc.JobID, ev)
+
+	if terminal != "" {
+		_ = w.store.SetJobStatus(svc.JobID, terminal)
+		// Detach so a future PATCH that uses ?stream=true gets a fresh job.
+		_ = w.store.AttachJob(svc.ID, "")
+	}
+}
+
 func (w *Worker) processPending(ctx context.Context) {
 	rows, err := w.store.ServicesByStatus(store.StatusPending)
 	if err != nil {
@@ -61,16 +115,16 @@ func (w *Worker) processPending(ctx context.Context) {
 		var spec kube.ServiceSpec
 		if err := json.Unmarshal(row.Spec, &spec); err != nil {
 			_ = w.store.UpdateStatus(row.ID, store.StatusFailed)
-			_ = w.store.LogEvent(row.ID, "DeployFailed", "invalid spec_json: "+err.Error())
+			w.emit(row, "DeployFailed", "invalid spec_json: "+err.Error())
 			continue
 		}
 		_ = w.store.UpdateStatus(row.ID, store.StatusDeploying)
-		_ = w.store.LogEvent(row.ID, "Deploying", "Worker picked up deployment task and started SSA")
+		w.emit(row, "Deploying", "Worker picked up deployment task and started SSA")
 
 		if err := w.kube.DeployService(ctx, &spec); err != nil {
 			log.Printf("worker: deploy %s: %v", row.ID, err)
 			_ = w.store.UpdateStatus(row.ID, store.StatusFailed)
-			_ = w.store.LogEvent(row.ID, "DeployFailed", "Server-side apply failed: "+err.Error())
+			w.emit(row, "DeployFailed", "Server-side apply failed: "+err.Error())
 		}
 	}
 }
@@ -92,7 +146,7 @@ func (w *Worker) watchDeploying(ctx context.Context) {
 
 		if status.Ready {
 			_ = w.store.MarkReady(row.ID, row.Spec)
-			_ = w.store.LogEvent(row.ID, "RolloutComplete", "Deployment rollout successfully finished and is Ready")
+			w.emit(row, "RolloutComplete", "Deployment rollout successfully finished and is Ready")
 			continue
 		}
 
@@ -118,14 +172,18 @@ func (w *Worker) watchDeploying(ctx context.Context) {
 			continue
 		}
 
-		_ = w.store.LogEvent(row.ID, "RolloutFailed", "Deployment failed health checks: "+failReason)
+		w.emit(row, "RolloutFailed", "Deployment failed health checks: "+failReason)
 
 		if row.LastReadySpec != nil {
-			_ = w.store.LogEvent(row.ID, "AutoRollback", "Reverting to previous READY spec")
+			w.emit(row, "AutoRollback", "Reverting to previous READY spec")
 			_ = w.store.UpsertService(row.ID, row.LastReadySpec, store.StatusPending)
+			// Re-attach the job to the new PENDING incarnation so the rollback rollout streams too.
+			if row.JobID != "" {
+				_ = w.store.AttachJob(row.ID, row.JobID)
+			}
 		} else {
 			_ = w.store.UpdateStatus(row.ID, store.StatusFailed)
-			_ = w.store.LogEvent(row.ID, "RollbackWarning", "Rollout failed; no previous READY spec to revert to.")
+			w.emit(row, "RollbackWarning", "Rollout failed; no previous READY spec to revert to.")
 		}
 	}
 }
@@ -143,7 +201,7 @@ func (w *Worker) reconcileDrift(ctx context.Context) {
 			continue
 		}
 		if !status.Ready && status.Reason == "Deployment not found" {
-			_ = w.store.LogEvent(row.ID, "DriftDetected",
+			w.emit(row, "DriftDetected",
 				"Service marked READY but missing in Kubernetes. Forcing re-apply.")
 			_ = w.store.UpdateStatus(row.ID, store.StatusPending)
 		}
