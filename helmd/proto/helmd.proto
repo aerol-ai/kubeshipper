@@ -1,0 +1,288 @@
+syntax = "proto3";
+
+package helmd.v1;
+
+option go_package = "kubeshipper/helmd/gen;helmdpb";
+
+// Helmd wraps the Helm v3 Go SDK and exposes it over gRPC.
+// Run as a sidecar in the KubeShipper pod, listening on a Unix domain socket.
+service Helmd {
+  // Install a chart. Streams progress events.
+  rpc Install(InstallRequest) returns (stream Event);
+
+  // Upgrade a release. Streams progress events.
+  rpc Upgrade(UpgradeRequest) returns (stream Event);
+
+  // Uninstall a release.
+  rpc Uninstall(UninstallRequest) returns (UninstallResponse);
+
+  // Rollback to a previous revision.
+  rpc Rollback(RollbackRequest) returns (RollbackResponse);
+
+  // List releases (live, no DB cache).
+  rpc List(ListRequest) returns (ListResponse);
+
+  // Get release details + live K8s state overlay.
+  rpc Get(GetRequest) returns (GetResponse);
+
+  // History of revisions for a release.
+  rpc History(HistoryRequest) returns (HistoryResponse);
+
+  // Render manifests without applying (used by /preflight and /manifest).
+  rpc Render(RenderRequest) returns (RenderResponse);
+
+  // Preflight checks: chart resolves, CRDs present, StorageClass exists, etc.
+  rpc Preflight(PreflightRequest) returns (PreflightResponse);
+
+  // Disable a single rendered resource via post-renderer (records to DB and triggers upgrade).
+  rpc DisableResource(DisableResourceRequest) returns (stream Event);
+
+  // Re-enable a previously disabled resource.
+  rpc EnableResource(EnableResourceRequest) returns (stream Event);
+
+  // Detect drift between Helm release manifest and live cluster state.
+  rpc Diff(DiffRequest) returns (DiffResponse);
+}
+
+// ChartSource describes where to pull a chart from.
+// Exactly one of {oci, https, git, tgz_bytes} must be set.
+message ChartSource {
+  oneof source {
+    OCISource oci = 1;
+    HTTPSSource https = 2;
+    GitSource git = 3;
+    TgzSource tgz = 4;
+  }
+}
+
+message OCISource {
+  string url = 1;       // oci://ghcr.io/Penify-dev/aerol-stack
+  string version = 2;   // semver, e.g. 0.1.0
+  BasicAuth auth = 3;   // optional
+}
+
+message HTTPSSource {
+  string repo_url = 1;  // https://charts.bitnami.com/bitnami
+  string chart = 2;     // redis
+  string version = 3;
+  BasicAuth auth = 4;   // optional
+}
+
+message GitSource {
+  string repo_url = 1;  // git@github.com:Penify-dev/aerol-helm-chart.git
+  string ref = 2;       // branch | tag | sha
+  string path = 3;      // subpath inside repo, e.g. "aerol-stack"
+  GitAuth auth = 4;     // optional
+}
+
+message TgzSource {
+  bytes tgz_bytes = 1;  // raw .tgz
+}
+
+message BasicAuth {
+  string username = 1;
+  string password = 2;
+}
+
+message GitAuth {
+  // exactly one
+  string ssh_key_pem = 1;
+  string token = 2;
+}
+
+// Prereq secrets to provision before install.
+message PrereqSecret {
+  string namespace = 1;
+  string name = 2;
+  string type = 3;                      // Opaque, kubernetes.io/dockerconfigjson, etc.
+  map<string, string> string_data = 4;  // applied to .stringData
+}
+
+message InstallRequest {
+  string release = 1;
+  string namespace = 2;
+  ChartSource source = 3;
+  string values_yaml = 4;
+  bool atomic = 5;
+  bool wait = 6;
+  int64 timeout_seconds = 7;
+  bool create_namespace = 8;
+  repeated PrereqSecret prereq_secrets = 9;
+}
+
+message UpgradeRequest {
+  string release = 1;
+  string namespace = 2;
+  ChartSource source = 3;
+  string values_yaml = 4;
+  bool atomic = 5;
+  bool wait = 6;
+  int64 timeout_seconds = 7;
+  bool reuse_values = 8;
+  bool reset_values = 9;
+}
+
+message UninstallRequest {
+  string release = 1;
+  string namespace = 2;
+  bool keep_history = 3;
+  bool delete_pvcs = 4;     // sweeps PVCs labeled with the release
+  bool force = 5;           // required by API layer; here for parity
+  int64 timeout_seconds = 6;
+}
+
+message UninstallResponse {
+  bool ok = 1;
+  string message = 2;
+  repeated string deleted_pvcs = 3;
+}
+
+message RollbackRequest {
+  string release = 1;
+  string namespace = 2;
+  int32 revision = 3;       // 0 = previous
+  bool wait = 4;
+  int64 timeout_seconds = 5;
+}
+
+message RollbackResponse {
+  bool ok = 1;
+  int32 new_revision = 2;
+}
+
+message ListRequest {
+  string namespace = 1;     // empty = all namespaces
+  bool all = 2;             // include uninstalled
+}
+
+message Release {
+  string name = 1;
+  string namespace = 2;
+  int32 revision = 3;
+  string status = 4;
+  string chart = 5;
+  string app_version = 6;
+  string updated_at = 7;
+}
+
+message ListResponse {
+  repeated Release releases = 1;
+}
+
+message GetRequest {
+  string release = 1;
+  string namespace = 2;
+}
+
+message GetResponse {
+  Release release = 1;
+  string values_yaml = 2;
+  string manifest = 3;
+  repeated DisabledResource disabled = 4;
+}
+
+message HistoryRequest {
+  string release = 1;
+  string namespace = 2;
+  int32 max = 3;
+}
+
+message HistoryEntry {
+  int32 revision = 1;
+  string status = 2;
+  string chart = 3;
+  string app_version = 4;
+  string updated_at = 5;
+  string description = 6;
+}
+
+message HistoryResponse {
+  repeated HistoryEntry entries = 1;
+}
+
+message RenderRequest {
+  string release = 1;
+  string namespace = 2;
+  ChartSource source = 3;
+  string values_yaml = 4;
+}
+
+message RenderResponse {
+  string manifest = 1;
+  repeated string required_crds = 2;     // discovered apiVersions/kinds
+  repeated string referenced_storage_classes = 3;
+}
+
+message PreflightRequest {
+  string release = 1;
+  string namespace = 2;
+  ChartSource source = 3;
+  string values_yaml = 4;
+}
+
+message PreflightCheck {
+  string name = 1;          // chart-resolvable, crd-cert-manager-present, etc.
+  bool blocking = 2;
+  bool passed = 3;
+  string message = 4;
+}
+
+message PreflightResponse {
+  bool ok = 1;              // true iff no blocking failures
+  repeated PreflightCheck checks = 2;
+}
+
+message DisabledResource {
+  string kind = 1;
+  string name = 2;
+  string namespace = 3;
+}
+
+message DisableResourceRequest {
+  string release = 1;
+  string namespace = 2;
+  DisabledResource resource = 3;
+  bool delete_pvcs = 4;
+  // Re-pulling the chart requires the same source the release was created from.
+  ChartSource source = 5;
+  string values_yaml = 6;
+  int64 timeout_seconds = 7;
+}
+
+message EnableResourceRequest {
+  string release = 1;
+  string namespace = 2;
+  DisabledResource resource = 3;
+  ChartSource source = 4;
+  string values_yaml = 5;
+  int64 timeout_seconds = 6;
+}
+
+message DiffRequest {
+  string release = 1;
+  string namespace = 2;
+}
+
+message DiffEntry {
+  string kind = 1;
+  string name = 2;
+  string namespace = 3;
+  string change = 4;        // added | removed | modified
+  string detail = 5;
+}
+
+message DiffResponse {
+  bool drifted = 1;
+  repeated DiffEntry entries = 2;
+}
+
+// Streaming progress event (sent on Install / Upgrade / DisableResource / EnableResource).
+message Event {
+  string phase = 1;         // validation | prereqs | render | apply | wait | done | error
+  string message = 2;
+  string resource_kind = 3;
+  string resource_name = 4;
+  string resource_namespace = 5;
+  string error = 6;         // set when phase == "error"
+  int64 ts = 7;             // unix millis
+}

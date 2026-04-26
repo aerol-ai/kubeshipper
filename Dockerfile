@@ -1,34 +1,63 @@
-# ---- deps stage: install production dependencies ----
-FROM oven/bun:1-alpine AS deps
+# ---- helmd-build: compile the Go sidecar that wraps the Helm SDK ----
+FROM golang:1.22-alpine AS helmd-build
 
+RUN apk add --no-cache git protoc protobuf-dev
+
+WORKDIR /src
+
+# Fetch deps first for layer caching.
+COPY helmd/go.mod helmd/go.sum* helmd/
+RUN cd helmd && go mod download || true
+
+# Bring in the rest of the Go source + proto.
+COPY helmd/ helmd/
+
+# Generate protobuf stubs into helmd/gen.
+RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.34.2 \
+    && go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1
+ENV PATH=$PATH:/root/go/bin
+RUN mkdir -p helmd/gen \
+    && protoc \
+        --go_out=helmd/gen --go_opt=paths=source_relative \
+        --go-grpc_out=helmd/gen --go-grpc_opt=paths=source_relative \
+        -I helmd/proto helmd/proto/helmd.proto \
+    && cd helmd && go mod tidy
+
+RUN cd helmd && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/helmd .
+
+# ---- ts-deps: install runtime node_modules ----
+FROM oven/bun:1-alpine AS ts-deps
 WORKDIR /app
-
-# Copy only the files needed to resolve deps — leverage layer cache
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile --production
 
 # ---- runtime image ----
 FROM oven/bun:1-alpine
 
+# tini for sane signal forwarding (so SIGTERM gracefully stops both bun and helmd)
+RUN apk add --no-cache tini
+
 WORKDIR /app
 
-# Copy installed modules from deps stage
-COPY --from=deps /app/node_modules ./node_modules
+COPY --from=ts-deps /app/node_modules ./node_modules
+COPY --from=helmd-build /out/helmd /usr/local/bin/helmd
 
-# Copy application source and TS config
 COPY src/ ./src/
+COPY helmd/proto/ ./helmd/proto/
 COPY tsconfig.json ./
+COPY scripts/start.sh /start.sh
+RUN chmod +x /start.sh
 
-# SQLite database lives on a mounted PersistentVolume in Kubernetes.
-# The directory is pre-created here so local runs also work without a volume.
-RUN mkdir -p /data
+RUN mkdir -p /data && chown bun:bun /data
 
 EXPOSE 3000
 
 ENV PORT=3000 \
-    DB_PATH=/data/kubeshipper.sqlite
+    DB_PATH=/data/kubeshipper.sqlite \
+    HELMD_SOCKET=/tmp/helmd.sock \
+    HELMD_PROTO=/app/helmd/proto/helmd.proto
 
-# Run as the unprivileged bun user (uid 1000)
 USER bun
 
-CMD ["bun", "run", "src/index.ts"]
+ENTRYPOINT ["/sbin/tini", "--"]
+CMD ["/start.sh"]

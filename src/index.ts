@@ -1,12 +1,15 @@
 import { Hono } from "hono";
 import { logger } from "hono/logger";
 import { servicesRouter } from "./api/routes";
+import { chartsRouter } from "./charts/routes";
 import { authMiddleware } from "./api/auth";
 import { initDB } from "./store/db";
+import { initChartsSchema } from "./charts/schema";
 import { startBackgroundWorkers } from "./worker";
 
 // Initialize database schema
 initDB();
+initChartsSchema();
 
 // Start K8s orchestration loops
 startBackgroundWorkers();
@@ -20,8 +23,8 @@ app.use("*", logger());
 app.get("/", (c) =>
   c.json({
     name: "kubeshipper",
-    description: "Lightweight Kubernetes deployment API",
-    docs: "/services",
+    description: "Lightweight Kubernetes deployment + Helm chart API",
+    docs: { services: "/services", charts: "/charts" },
   })
 );
 
@@ -35,11 +38,14 @@ app.get("/health", (c) =>
   })
 );
 
-// All /services routes require auth when AUTH_TOKEN is set in env
+// All non-health routes require auth when AUTH_TOKEN is set
 app.use("/services/*", authMiddleware);
 app.use("/services", authMiddleware);
+app.use("/charts/*", authMiddleware);
+app.use("/charts", authMiddleware);
 
 app.route("/services", servicesRouter);
+app.route("/charts", chartsRouter);
 
 export default {
   port: process.env.PORT || 3000,
