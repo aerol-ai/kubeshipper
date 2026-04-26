@@ -196,6 +196,25 @@ helm install kubeshipper ./helm-chart \
 
 > ⚠️ Setting `helmAdmin=true` makes `AUTH_TOKEN` cluster-admin-equivalent — the holder can install any Helm chart, which can create any Kubernetes resource. Keep the token tightly held.
 
+### Cluster-wide install (deploy to all namespaces)
+
+To let KubeShipper deploy `/services` workloads into **any** namespace, leave
+`rbac.clusterWide=true` (the default). This creates a `ClusterRole` +
+`ClusterRoleBinding`, so you don't need to enumerate namespaces in
+`rbac.managedNamespaces`:
+
+```bash
+helm install kubeshipper oci://ghcr.io/aerol-ai/helm/kubeshipper \
+  --version 0.1.1 \
+  --namespace kubeshipper --create-namespace \
+  --set auth.token=$(openssl rand -hex 32) \
+  --set rbac.helmAdmin=true \
+  --set rbac.clusterWide=true
+```
+
+There is no wildcard for the namespace-scoped mode — to grant access to a
+fixed set of namespaces only, see the next section.
+
 ### Namespace-scoped Helm install
 
 To restrict KubeShipper to only manage the `production` and `staging` namespaces:
@@ -401,7 +420,7 @@ Authentication uses the built-in `GITHUB_TOKEN` — no GCP account, no service a
 
 ```bash
 helm install kubeshipper oci://ghcr.io/aerol-ai/helm/kubeshipper \
-  --version 0.1.0 \
+  --version 0.1.1 \
   --namespace kubeshipper \
   --create-namespace \
   --set auth.token=your-secret-token \
@@ -412,7 +431,7 @@ helm install kubeshipper oci://ghcr.io/aerol-ai/helm/kubeshipper \
 
 ```bash
 helm install kubeshipper oci://ghcr.io/aerol-ai/helm/kubeshipper \
-  --version 0.1.0 \
+  --version 0.1.1 \
   --namespace kubeshipper \
   --create-namespace \
   --set auth.token=your-secret-token \
@@ -437,7 +456,7 @@ rbac:
 
 ```bash
 helm install kubeshipper oci://ghcr.io/aerol-ai/helm/kubeshipper \
-  --version 0.1.0 \
+  --version 0.1.1 \
   --namespace kubeshipper \
   --create-namespace \
   -f my-values.yaml

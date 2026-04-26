@@ -167,14 +167,35 @@ helm install kubeshipper ./helm-chart \
 
 ```bash
 helm install kubeshipper oci://ghcr.io/aerol-ai/helm/kubeshipper \
-  --version 0.1.0 \
+  --version 0.1.1 \
   --namespace kubeshipper --create-namespace \
   --set auth.token=$(openssl rand -hex 32) \
   --set rbac.helmAdmin=true \
   --set rbac.managedNamespaces[0]=default
 ```
 
-### 4.4 Verify
+### 4.4 Install with access to all namespaces
+
+To let kubeshipper deploy `/services` workloads into **any** namespace (no
+upfront list), use the default `rbac.clusterWide=true`. This creates a
+`ClusterRole` + `ClusterRoleBinding` instead of per-namespace `Role`s, so
+`rbac.managedNamespaces` is not needed for `/services` RBAC.
+
+```bash
+helm install kubeshipper oci://ghcr.io/aerol-ai/helm/kubeshipper \
+  --version 0.1.1 \
+  --namespace kubeshipper --create-namespace \
+  --set auth.token=$(openssl rand -hex 32) \
+  --set rbac.helmAdmin=true \
+  --set rbac.clusterWide=true
+```
+
+> ⚠️ Cluster-wide mode grants the SA deployments/services/pods/ingresses/jobs
+> permissions across the whole cluster. Combined with `helmAdmin=true` (which
+> binds `cluster-admin` for `/charts`), the `auth.token` is effectively
+> cluster-admin. Use namespace-scoped mode (§4.5) for tighter blast radius.
+
+### 4.5 Verify
 
 ```bash
 kubectl -n kubeshipper get pod
@@ -185,7 +206,7 @@ kubectl -n kubeshipper port-forward svc/kubeshipper 3000:3000
 curl -H "Authorization: Bearer $TOKEN" http://localhost:3000/health
 ```
 
-### 4.5 Upgrade
+### 4.6 Upgrade
 
 ```bash
 helm upgrade kubeshipper ./helm-chart \
