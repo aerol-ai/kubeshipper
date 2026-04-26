@@ -168,7 +168,7 @@ helm install kubeshipper ./helm-chart \
 
 ```bash
 helm install kubeshipper oci://ghcr.io/aerol-ai/helm/kubeshipper \
-  --version 0.1.1 \
+  --version 0.1.2 \
   --namespace kubeshipper --create-namespace \
   --set auth.token=$(openssl rand -hex 32) \
   --set rbac.helmAdmin=true \
@@ -184,7 +184,7 @@ upfront list), use the default `rbac.clusterWide=true`. This creates a
 
 ```bash
 helm install kubeshipper oci://ghcr.io/aerol-ai/helm/kubeshipper \
-  --version 0.1.1 \
+  --version 0.1.2 \
   --namespace kubeshipper --create-namespace \
   --set auth.token=$(openssl rand -hex 32) \
   --set rbac.helmAdmin=true \
@@ -236,7 +236,7 @@ Uses Traefik's native CRD; supports cert resolvers, middlewares, and entrypoints
 
 ```bash
 helm install kubeshipper oci://ghcr.io/aerol-ai/helm/kubeshipper \
-  --version 0.1.1 \
+  --version 0.1.2 \
   --namespace kubeshipper --create-namespace \
   --set auth.token=$(openssl rand -hex 32) \
   --set rbac.helmAdmin=true \
@@ -256,7 +256,7 @@ Renders a `networking.k8s.io/v1` Ingress instead of the Traefik CRD. TLS must co
 
 ```bash
 helm install kubeshipper oci://ghcr.io/aerol-ai/helm/kubeshipper \
-  --version 0.1.1 \
+  --version 0.1.2 \
   --namespace kubeshipper --create-namespace \
   --set auth.token=$(openssl rand -hex 32) \
   --set ingress.enabled=true \

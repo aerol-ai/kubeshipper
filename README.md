@@ -216,7 +216,7 @@ To let KubeShipper deploy `/services` workloads into **any** namespace, leave
 
 ```bash
 helm install kubeshipper oci://ghcr.io/aerol-ai/helm/kubeshipper \
-  --version 0.1.1 \
+  --version 0.1.2 \
   --namespace kubeshipper --create-namespace \
   --set auth.token=$(openssl rand -hex 32) \
   --set rbac.helmAdmin=true \
@@ -283,7 +283,7 @@ The chart is **provider-pluggable**. Today only `traefik` is implemented; `nginx
 
 ```bash
 helm install kubeshipper oci://ghcr.io/aerol-ai/helm/kubeshipper \
-  --version 0.1.1 \
+  --version 0.1.2 \
   --namespace kubeshipper --create-namespace \
   --set auth.token=$(openssl rand -hex 32) \
   --set rbac.helmAdmin=true \
@@ -303,7 +303,7 @@ Useful when you want a plain `networking.k8s.io/v1` Ingress that other controlle
 
 ```bash
 helm install kubeshipper oci://ghcr.io/aerol-ai/helm/kubeshipper \
-  --version 0.1.1 \
+  --version 0.1.2 \
   --namespace kubeshipper --create-namespace \
   --set auth.token=$(openssl rand -hex 32) \
   --set ingress.enabled=true \
@@ -524,7 +524,7 @@ Authentication uses the built-in `GITHUB_TOKEN` — no GCP account, no service a
 
 ```bash
 helm install kubeshipper oci://ghcr.io/aerol-ai/helm/kubeshipper \
-  --version 0.1.1 \
+  --version 0.1.2 \
   --namespace kubeshipper \
   --create-namespace \
   --set auth.token=your-secret-token \
@@ -535,7 +535,7 @@ helm install kubeshipper oci://ghcr.io/aerol-ai/helm/kubeshipper \
 
 ```bash
 helm install kubeshipper oci://ghcr.io/aerol-ai/helm/kubeshipper \
-  --version 0.1.1 \
+  --version 0.1.2 \
   --namespace kubeshipper \
   --create-namespace \
   --set auth.token=your-secret-token \
@@ -560,7 +560,7 @@ rbac:
 
 ```bash
 helm install kubeshipper oci://ghcr.io/aerol-ai/helm/kubeshipper \
-  --version 0.1.1 \
+  --version 0.1.2 \
   --namespace kubeshipper \
   --create-namespace \
   -f my-values.yaml
