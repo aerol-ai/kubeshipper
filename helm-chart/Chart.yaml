@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubeshipper
 description: Lightweight Kubernetes deployment API — deploy, update, scale, and manage workloads via a simple HTTP API.
 type: application
-version: 0.1.1
+version: 0.1.2
 appVersion: "1.0.0"
 keywords:
   - kubernetes
