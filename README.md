@@ -25,16 +25,19 @@ Single Go binary, single SQLite file for local state, no sidecars.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/services` | Deploy a new service. Add `?stream=true` for SSE progress (returns `jobId` + stream URL) |
+| `POST` | `/services` | Deploy a new service — returns `jobId` + SSE stream URL |
 | `GET` | `/services` | List all services |
 | `GET` | `/services/:id` | Get a service + live K8s status |
-| `PATCH` | `/services/:id` | Update a service spec. Add `?stream=true` for SSE progress |
-| `DELETE` | `/services/:id` | Tear down a service and all its K8s resources |
-| `POST` | `/services/:id/restart` | Rolling restart without image change |
+| `PATCH` | `/services/:id` | Update a service spec — returns `jobId` + SSE stream URL |
+| `DELETE` | `/services/:id` | Tear down a service — returns `jobId` + SSE stream URL |
+| `POST` | `/services/:id/restart` | Rolling restart — returns `jobId` + SSE stream URL |
 | `GET` | `/services/:id/logs` | Stream live pod logs |
-| `GET` | `/services/:id/events` | Get deployment event history (lifecycle audit log) |
-| `GET` | `/services/jobs/:jobId` | Streaming-job state + accumulated events |
-| `GET` | `/services/jobs/:jobId/stream` | Server-Sent Events for a deploy/patch job |
+| `GET` | `/services/jobs/:jobId` | Job state + accumulated events |
+| `GET` | `/services/jobs/:jobId/stream` | Server-Sent Events for a deploy/patch/delete/restart job |
+
+Every mutating call on `/services` is fire-and-stream: a 202 response with a
+`jobId` and the SSE URL to consume progress from. There's no opt-in flag —
+streaming is the only path.
 
 ### `/charts` — Helm chart management
 

@@ -25,15 +25,15 @@ PENDING → DEPLOYING → READY            (happy path)
 READY   → PENDING                       (drift: Deployment missing in K8s)
 ```
 
-### UC-1. Deploy a stateless HTTP service
+### UC-1. Deploy a stateless HTTP service (streaming)
 
-Send a JSON spec; the worker creates Deployment + Service + (optionally) Ingress
-via server-side apply.
+Every mutating `/services` call returns a `jobId` + SSE stream URL. The example
+deploys a service then streams the rollout to completion in one shot.
 
 **Smoke test — minimal payload (no resource limits, BestEffort QoS):**
 
 ```bash
-curl -X POST $KS/services \
+RESP=$(curl -s -X POST $KS/services \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -44,12 +44,24 @@ curl -X POST $KS/services \
     "public": true,
     "hostname": "echo.example.com",
     "namespace": "default"
-  }'
-# 202 → { "id": "echo", "status": "PENDING" }
+  }')
+# 202 → {"id":"echo","jobId":"<id>","status":"PENDING","stream":"/services/jobs/<id>/stream"}
+
+JOB=$(echo "$RESP" | jq -r .jobId)
+curl -N -H "Authorization: Bearer $TOKEN" "$KS$(echo "$RESP" | jq -r .stream)"
 ```
 
-`resources` is intentionally omitted here so the example fits on one screen.
-The pod gets **no CPU/memory requests, no limits, BestEffort QoS** — fine for a
+Output (one event per worker phase transition):
+
+```
+data: {"phase":"validation","message":"Service create requested via API","ts":...}
+data: {"phase":"apply","message":"Deploying: Worker picked up deployment task and started SSA","ts":...}
+data: {"phase":"done","message":"RolloutComplete: Deployment rollout successfully finished and is Ready","ts":...}
+data: {"phase":"complete","message":"succeeded","ts":...}
+```
+
+`resources` is intentionally omitted so the example fits on one screen. The
+pod gets **no CPU/memory requests, no limits, BestEffort QoS** — fine for a
 smoke test, **not** what you want in production. With no requests, the
 scheduler treats CPU/memory reservation as zero; with no limits, the container
 can burst until OOM-killed by the kernel under node pressure. BestEffort pods
@@ -77,77 +89,38 @@ curl -X POST $KS/services \
 ```
 
 `requests` is what the scheduler reserves; `limits` is the hard cap. Values are
-parsed by Kubernetes' `resource.ParseQuantity` — use the standard suffixes
+parsed by Kubernetes' `resource.ParseQuantity` — use standard suffixes
 (`m` = milli-CPU, `Mi` / `Gi` = mebi/gibi-bytes). Malformed quantities are
-silently dropped (see `internal/kube/adapter.go:parseRequests`), so always
-inspect the resulting Deployment to confirm what landed.
+silently dropped (see `internal/kube/adapter.go:parseRequests`).
 
-Within ~5s the worker picks it up, applies the manifests, polls readiness, and
-flips status to `READY` once both replicas pass healthchecks.
-
-### UC-2. Update a service spec (rolling deploy)
-
-```bash
-curl -X PATCH $KS/services/echo \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{ "image": "ealen/echo-server:0.9.2", "replicas": 3 }'
-```
-
-The merge logic in `internal/kube/spec.go` preserves any field the patch omits.
-The worker re-applies via SSA and Kubernetes does a rolling update.
-
-### UC-2.5. Stream a deploy / patch in real time (SSE)
-
-Add `?stream=true` to `POST /services` or `PATCH /services/:id`. The response
-shape changes from `{ id, status }` to `{ id, jobId, status, stream }`. Open
-the `stream` URL with an EventSource client (or `curl -N`) to watch progress
-live until the rollout terminates.
-
-```bash
-RESP=$(curl -s -X POST "$KS/services?stream=true" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "echo",
-    "image": "ealen/echo-server:latest",
-    "port": 80,
-    "replicas": 2,
-    "namespace": "default"
-  }')
-
-JOB=$(echo "$RESP" | jq -r .jobId)
-
-curl -N -H "Authorization: Bearer $TOKEN" "$KS/services/jobs/$JOB/stream"
-```
-
-Output (one event per worker phase transition):
-
-```
-data: {"phase":"validation","message":"Service create requested via API","ts":...}
-data: {"phase":"apply","message":"Deploying: Worker picked up deployment task and started SSA","ts":...}
-data: {"phase":"done","message":"RolloutComplete: Deployment rollout successfully finished and is Ready","ts":...}
-data: {"phase":"complete","message":"succeeded","ts":...}
-```
-
-Phase semantics for `/services` jobs:
+### Phase semantics for `/services` jobs
 
 | Phase | Trigger |
 |---|---|
 | `validation` | Job created (request accepted) |
 | `apply` | Worker started SSA (`Deploying`) or initiated rollback (`AutoRollback`) |
 | `wait` | Soft failure detected; rollback may run (`RolloutFailed`) |
-| `done` | Pods are ready (`RolloutComplete`) — terminal: succeeded |
+| `done` | Operation succeeded (`RolloutComplete`, `service torn down`, etc.) — terminal: succeeded |
 | `error` | Hard failure (`DeployFailed`/`RollbackWarning`) — terminal: failed |
 | `complete` | Final marker emitted by the job runtime |
 
 Reconnecting to the same `/services/jobs/:id/stream` URL replays everything
-from the persisted `events_jsonl` then continues live — useful for clients that
-disconnect mid-deploy.
+from `events_jsonl` then continues live — useful for clients that disconnect
+mid-deploy.
 
-Without `?stream=true`, `POST /services` and `PATCH /services/:id` keep their
-original behavior (return `{id, status}`, no job, no SSE) — existing callers
-are unaffected.
+### UC-2. Update a service spec (rolling deploy)
+
+```bash
+RESP=$(curl -s -X PATCH $KS/services/echo \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{ "image": "ealen/echo-server:0.9.2", "replicas": 3 }')
+curl -N -H "Authorization: Bearer $TOKEN" "$KS$(echo "$RESP" | jq -r .stream)"
+```
+
+The merge logic in `internal/kube/spec.go` preserves any field the patch omits.
+The worker re-applies via SSA and Kubernetes does a rolling update; the same
+phase sequence as UC-1 streams from the new job.
 
 ### UC-3. Restart a service without changing the spec
 
@@ -155,11 +128,14 @@ Useful when the image tag is mutable (`:latest`) and the registry has a fresh
 push.
 
 ```bash
-curl -X POST $KS/services/echo/restart -H "Authorization: Bearer $TOKEN"
+RESP=$(curl -s -X POST $KS/services/echo/restart -H "Authorization: Bearer $TOKEN")
+curl -N -H "Authorization: Bearer $TOKEN" "$KS$(echo "$RESP" | jq -r .stream)"
 ```
 
 Adds a `kubeshipper.io/restartedAt` pod-template annotation via strategic merge
-patch — Kubernetes treats that as a spec change and rolls the pods.
+patch — Kubernetes treats that as a spec change and rolls the pods. Stream
+emits `validation → done` once the patch is applied; the actual rollout watch
+is left to the client (Kubernetes drives it).
 
 ### UC-4. Stream live pod logs
 
@@ -176,34 +152,49 @@ Streams the first matching pod's `app` container with `tailLines=50` and
 curl $KS/services/echo -H "Authorization: Bearer $TOKEN" | jq .
 ```
 
-Returns the stored spec, recorded status, and a live `k8sStatus` overlay
-(`readyReplicas`, conditions, etc.). Useful for dashboards.
+Returns the stored spec, recorded status, current `job_id` (if any operation
+is in flight), and a live `k8sStatus` overlay (`readyReplicas`, conditions).
 
-### UC-6. View deployment event history
+### UC-6. Replay a previous deploy/patch's event log
+
+There's no separate "events" endpoint — every lifecycle event is on the job.
+To inspect what happened on a past deploy, hit the job:
 
 ```bash
-curl $KS/services/echo/events -H "Authorization: Bearer $TOKEN" | jq .
+curl $KS/services/jobs/<jobId> -H "Authorization: Bearer $TOKEN" | jq .events
 ```
 
-Returns the last 200 lifecycle events: `Created`, `Deploying`, `RolloutComplete`,
-`RolloutFailed`, `AutoRollback`, `DriftDetected`, etc.
+Returns the full `events_jsonl` for that job (validation, apply, done/error,
+complete) plus operation type and start/end timestamps.
 
 ### UC-7. Tear down a service
 
 ```bash
-curl -X DELETE $KS/services/echo -H "Authorization: Bearer $TOKEN"
+RESP=$(curl -s -X DELETE $KS/services/echo -H "Authorization: Bearer $TOKEN")
+curl -N -H "Authorization: Bearer $TOKEN" "$KS$(echo "$RESP" | jq -r .stream)"
 ```
 
 Deletes Deployment + Service + Ingress in the configured namespace and removes
-the row from the local DB.
+the row from the local DB. Stream emits `validation → done → complete` once
+all three K8s deletes return.
 
 ### UC-8. Auto-rollback on a bad rollout
 
 If a new spec triggers `ProgressDeadlineExceeded` or `ReplicaFailure`,
 `internal/worker/worker.go:watchDeploying` detects it and re-applies the last
-known `READY` spec (`last_ready_spec_json`). No client involvement needed.
+known `READY` spec (`last_ready_spec_json`). The same job stays attached
+across the rollback, so a single SSE stream shows the full arc:
 
-A `RolloutFailed` and `AutoRollback` event are written to the audit trail.
+```
+phase: apply  (Deploying)
+phase: wait   (RolloutFailed)
+phase: apply  (AutoRollback)
+phase: done   (RolloutComplete)         ← rollback succeeded
+phase: complete (succeeded)
+```
+
+If there's no previous READY spec to revert to, the stream terminates with
+`error / RollbackWarning` instead.
 
 ### UC-9. Drift reconciliation
 
@@ -211,7 +202,10 @@ Every 60s, the worker walks all `READY` services and confirms the underlying
 Deployment still exists. If it's gone (deleted out-of-band), the service is
 flipped back to `PENDING` and the worker re-applies the spec on the next tick.
 
-No client call — observable via `GET /services/:id/events` (`DriftDetected`).
+No SSE events are emitted for drift handling — the original deploy job has
+already terminated by the time drift is detected. Observability is via
+`GET /services/:id` (the `status` field flips back to `PENDING`, then
+`DEPLOYING`, then `READY`).
 
 ---
 

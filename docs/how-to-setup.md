@@ -64,23 +64,30 @@ curl http://localhost:3000/charts
 # {"releases":[ ... live Helm releases from your cluster ... ]}
 ```
 
-Quick `/services` test (creates a real Deployment + Service):
+Quick `/services` test (creates a real Deployment + Service and streams the rollout):
 
 ```bash
-curl -X POST http://localhost:3000/services \
+RESP=$(curl -s -X POST http://localhost:3000/services \
   -H 'Content-Type: application/json' \
   -d '{
     "name": "demo-echo",
     "image": "ealen/echo-server:latest",
     "port": 80,
     "replicas": 1
-  }'
+  }')
+echo "$RESP"
+# {"id":"demo-echo","jobId":"<uuid>","status":"PENDING","stream":"/services/jobs/<uuid>/stream"}
 
-# Check it landed
+# Stream the rollout to completion
+JOB=$(echo "$RESP" | jq -r .jobId)
+curl -N "http://localhost:3000/services/jobs/$JOB/stream"
+
+# Confirm in the cluster
 kubectl get deploy,svc -l app=demo-echo
 
-# Tear down
-curl -X DELETE http://localhost:3000/services/demo-echo
+# Tear down (also returns a streaming job)
+DRESP=$(curl -s -X DELETE http://localhost:3000/services/demo-echo)
+curl -N "http://localhost:3000$(echo "$DRESP" | jq -r .stream)"
 ```
 
 ### Build the binary directly

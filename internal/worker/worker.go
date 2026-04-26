@@ -18,10 +18,10 @@ import (
 //
 // Plus a slower drift loop that re-pends services whose Deployment is missing.
 //
-// When a row carries a JobID (set by /services?stream=true callers) every
-// lifecycle event is also published to that job's pubsub so SSE consumers
-// see it in real time. Legacy fire-and-forget rows (JobID == "") behave
-// exactly as before.
+// Every operator-initiated mutation creates a job and attaches it to the row
+// (services.job_id). The worker publishes typed events to that job's SSE
+// pubsub on every state transition. Drift-triggered re-pends have no JobID
+// and produce no events — they're internal reconciliation, not user-driven.
 type Worker struct {
 	store *store.Store
 	kube  *kube.Client
@@ -101,7 +101,7 @@ func (w *Worker) emit(svc *store.Service, eventType, message string) {
 
 	if terminal != "" {
 		_ = w.store.SetJobStatus(svc.JobID, terminal)
-		// Detach so a future PATCH that uses ?stream=true gets a fresh job.
+		// Detach so the next PATCH gets a fresh job.
 		_ = w.store.AttachJob(svc.ID, "")
 	}
 }
