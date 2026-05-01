@@ -1,12 +1,13 @@
 # KubeShipper
 
-A lightweight HTTP API service that manages Kubernetes workloads. Two APIs:
+A lightweight deployment control plane for Kubernetes workloads.
 
-- **`/services`** — send a JSON spec, KubeShipper produces Deployment + Service + Ingress and applies via server-side apply.
-- **`/charts`** — drive the Helm v3 SDK over HTTP: install / upgrade / uninstall / rollback / disable individual chart resources, with SSE progress streaming.
-- **`/rollout-watches`** — register existing Deployments for automatic image-digest checks every minute and patch them when the remote digest changes.
+- **`/`** — React dashboard for Helm releases, service CRUD, rollout automation, and live operation streaming.
+- **`/api/services`** — send a JSON spec, KubeShipper produces Deployment + Service + Ingress and applies via server-side apply.
+- **`/api/charts`** — drive the Helm v3 SDK over HTTP: install / upgrade / uninstall / rollback / disable individual chart resources, with SSE progress streaming.
+- **`/api/rollout-watches`** — register existing Deployments for automatic image-digest checks every minute and patch them when the remote digest changes.
 
-Single Go binary, single SQLite file for local state, no sidecars.
+Single Go binary, single SQLite file for local state, no sidecars. The backend resource surface is `/api/*`, while `/` is reserved for the dashboard.
 
 ## Table of Contents
 
@@ -23,41 +24,43 @@ Single Go binary, single SQLite file for local state, no sidecars.
 
 ## API Reference
 
-### `/services` — JSON-spec deployments
+All resource routes below are served under `/api/*`.
+
+### `/api/services` — JSON-spec deployments
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/services` | Deploy a new service — returns `jobId` + SSE stream URL |
-| `GET` | `/services` | List all services |
-| `GET` | `/services/:id` | Get a service + live K8s status |
-| `PATCH` | `/services/:id` | Update a service spec — returns `jobId` + SSE stream URL |
-| `DELETE` | `/services/:id` | Tear down a service — returns `jobId` + SSE stream URL |
-| `POST` | `/services/:id/restart` | Rolling restart — returns `jobId` + SSE stream URL |
-| `GET` | `/services/:id/logs` | Stream live pod logs |
-| `GET` | `/services/jobs/:jobId` | Job state + accumulated events |
-| `GET` | `/services/jobs/:jobId/stream` | Server-Sent Events for a deploy/patch/delete/restart job |
+| `POST` | `/api/services` | Deploy a new service — returns `jobId` + SSE stream URL |
+| `GET` | `/api/services` | List all services |
+| `GET` | `/api/services/:id` | Get a service + live K8s status |
+| `PATCH` | `/api/services/:id` | Update a service spec — returns `jobId` + SSE stream URL |
+| `DELETE` | `/api/services/:id` | Tear down a service — returns `jobId` + SSE stream URL |
+| `POST` | `/api/services/:id/restart` | Rolling restart — returns `jobId` + SSE stream URL |
+| `GET` | `/api/services/:id/logs` | Stream live pod logs |
+| `GET` | `/api/services/jobs/:jobId` | Job state + accumulated events |
+| `GET` | `/api/services/jobs/:jobId/stream` | Server-Sent Events for a deploy/patch/delete/restart job |
 
-Every mutating call on `/services` is fire-and-stream: a 202 response with a
+Every mutating call on `/api/services` is fire-and-stream: a 202 response with a
 `jobId` and the SSE URL to consume progress from. There's no opt-in flag —
 streaming is the only path.
 
-### `/charts` — Helm chart management
+### `/api/charts` — Helm chart management
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/charts` | Install a chart (returns 202 + jobId + SSE URL) |
-| `GET` | `/charts` | Live list from Helm |
-| `POST` | `/charts/preflight` | Run checks without installing |
-| `GET` | `/charts/:release?namespace=` | Release detail + values + manifest + disabled list |
-| `PATCH` | `/charts/:release?namespace=` | Upgrade (auto drift-resync) |
-| `DELETE` | `/charts/:release?namespace=&force=true` | Uninstall + reap PVCs |
-| `POST` | `/charts/:release/rollback?namespace=` | Roll back to revision |
-| `GET` | `/charts/:release/history\|values\|manifest?namespace=` | Read paths |
-| `POST` | `/charts/:release/resources/:kind/:name/disable?namespace=&force=true` | Strip a single resource via post-renderer |
-| `POST` | `/charts/:release/resources/:kind/:name/enable?namespace=` | Re-add a stripped resource |
-| `GET` | `/charts/jobs/:jobId\|/stream` | Job state + SSE event stream |
+| `POST` | `/api/charts` | Install a chart (returns 202 + jobId + SSE URL) |
+| `GET` | `/api/charts` | Live list from Helm |
+| `POST` | `/api/charts/preflight` | Run checks without installing |
+| `GET` | `/api/charts/:release?namespace=` | Release detail + values + manifest + disabled list |
+| `PATCH` | `/api/charts/:release?namespace=` | Upgrade (auto drift-resync) |
+| `DELETE` | `/api/charts/:release?namespace=&force=true` | Uninstall + reap PVCs |
+| `POST` | `/api/charts/:release/rollback?namespace=` | Roll back to revision |
+| `GET` | `/api/charts/:release/history\|diff\|values\|manifest?namespace=` | Read paths |
+| `POST` | `/api/charts/:release/resources/:kind/:name/disable?namespace=&force=true` | Strip a single resource via post-renderer |
+| `POST` | `/api/charts/:release/resources/:kind/:name/enable?namespace=` | Re-add a stripped resource |
+| `GET` | `/api/charts/jobs/:jobId\|/stream` | Job state + SSE event stream |
 
-`/charts` supports four chart sources: OCI registries (incl. private GHCR), classic HTTPS Helm repos, git URLs, and uploaded `.tgz`. Credentials are supplied per-request and never persisted. See `docs/charts-api.md` for full payload examples.
+`/api/charts` supports four chart sources: OCI registries (incl. private GHCR), classic HTTPS Helm repos, git URLs, and uploaded `.tgz`. Credentials are supplied per-request and never persisted. See `docs/charts-api.md` for full payload examples.
 
 When a chart install or upgrade should also configure automatic digest-based restarts, include an optional `rolloutWatch` block in the same request body:
 
@@ -78,15 +81,18 @@ When a chart install or upgrade should also configure automatic digest-based res
 
 `rolloutWatch.service` is accepted as an alias for `rolloutWatch.deployment`, and `rolloutWatch.container` lets you target one container in a multi-container Deployment.
 
-### `/rollout-watches` — automatic digest-based deployment refresh
+### `/api/rollout-watches` — automatic digest-based deployment refresh
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/rollout-watches` | Register or refresh a watched Deployment |
-| `GET` | `/rollout-watches` | List watched Deployments + latest sync state |
-| `GET` | `/rollout-watches/:id` | Read one watch, including its timeline |
-| `POST` | `/rollout-watches/:id/sync` | Trigger an immediate digest check |
-| `DELETE` | `/rollout-watches/:id` | Remove a watch |
+| `POST` | `/api/rollout-watches` | Register or refresh a watched Deployment |
+| `GET` | `/api/rollout-watches` | List watched Deployments + latest sync state |
+| `GET` | `/api/rollout-watches/:id` | Read one watch, including its timeline |
+| `POST` | `/api/rollout-watches/:id/enable` | Re-enable automatic digest reconciliation |
+| `POST` | `/api/rollout-watches/:id/disable` | Pause automatic digest reconciliation |
+| `POST` | `/api/rollout-watches/:id/sync` | Trigger an immediate digest check |
+| `POST` | `/api/rollout-watches/:id/restart` | Force a rollout restart immediately |
+| `DELETE` | `/api/rollout-watches/:id` | Remove a watch |
 
 Behavior:
 
@@ -110,8 +116,10 @@ Example registration:
 
 | Method | Path | Description |
 |--------|------|-------------|
+| `GET` | `/` | React dashboard shell |
 | `GET` | `/health` | Liveness/readiness check |
-| `GET` | `/` | Service info |
+| `GET` | `/api/` | JSON API docs |
+| `GET` | `/api/health` | JSON health endpoint |
 
 ### Example request body
 
@@ -134,13 +142,22 @@ Example registration:
 
 ### Authentication
 
-When `AUTH_TOKEN` is set, all `/services`, `/charts`, and `/rollout-watches` endpoints require:
+When `AUTH_TOKEN` is set, all `/api/*` resource endpoints require either:
 
 ```
 Authorization: Bearer <your-token>
 ```
 
-`/health` and `/` are always public (used by K8s probes).
+or a JWT session cookie minted by the dashboard login flow:
+
+```text
+POST /api/auth/login
+{ "token": "<AUTH_TOKEN>" }
+```
+
+That endpoint sets an `HttpOnly` cookie used automatically by the dashboard for all subsequent `/api/*` requests. Session inspection and logout are available at `/api/auth/session` and `/api/auth/logout`.
+
+`/health`, `/`, `/api/`, and `/api/health` are always public.
 
 ---
 
@@ -161,11 +178,24 @@ MANAGED_NAMESPACES=default go run .
 
 The server starts on `http://localhost:3000`. Your local `~/.kube/config` is used automatically when running outside a cluster.
 
+If you change the dashboard source in `web/`, rebuild the embedded assets with:
+
+```bash
+cd web && bun install && bun run build
+```
+
+For standalone frontend development, run Vite in `web/` and keep the Go API on port `3000`. The Vite dev server proxies `/api/*` back to the Go backend, so frontend routes stay on the UI side while backend routes remain under `/api/*`.
+
+```bash
+cd web && bun install && bun run dev
+```
+
 Quick smoke test:
 
 ```bash
 curl http://localhost:3000/health
-curl http://localhost:3000/charts        # lists Helm releases in your current cluster
+curl http://localhost:3000/api/          # API docs JSON
+curl http://localhost:3000/api/charts    # lists Helm releases in your current cluster
 ```
 
 ---
@@ -677,7 +707,7 @@ helm install kubeshipper ./helm-chart \
   --set rbac.managedNamespaces[1]=staging
 ```
 
-`/services` requests pick the target namespace from the `namespace` field on each request body, validated against the `MANAGED_NAMESPACES` allow-list. A request for an unlisted namespace is rejected with 400.
+`/api/services` requests pick the target namespace from the `namespace` field on each request body, validated against the `MANAGED_NAMESPACES` allow-list. A request for an unlisted namespace is rejected with 400.
 
 ---
 
@@ -689,8 +719,8 @@ internal/
 ├── api/                    chi router + handlers
 │   ├── server.go           /, /health, auth gate
 │   ├── auth.go             bearer-token middleware
-│   ├── services.go         /services/* (8 endpoints)
-│   └── charts.go           /charts/* (15 endpoints, SSE)
+│   ├── services.go         /api/services/* (8 endpoints)
+│   └── charts.go           /api/charts/* (15 endpoints, SSE)
 ├── helm/                   wraps the Helm v3 SDK directly (no sidecar)
 │   ├── manager.go, install.go, upgrade.go, uninstall.go,
 │   ├── rollback.go, list_get.go, preflight.go, diff.go,
@@ -719,6 +749,26 @@ docker run --rm \
   -p 3000:3000 \
   kubeshipper:local
 ```
+
+## Running With Docker Compose
+
+There was no compose file before because KubeShipper does not depend on a separate Postgres, Redis, or sidecar service. The app is a single container with embedded SQLite; the only external runtime dependency is Kubernetes access through your kubeconfig.
+
+The repository now includes [docker-compose.yml](docker-compose.yml) for local containerized runs:
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+What the compose setup provides:
+
+- Builds the current Dockerfile
+- Persists SQLite state in a named Docker volume
+- Mounts your host `~/.kube` directory read-only into `/home/ks/.kube`
+- Exposes the app on `http://localhost:3000`
+
+If your kubeconfig is not at `~/.kube/config`, edit the bind mount in `docker-compose.yml` before starting the stack.
 
 ## CI/CD — Pushing to GCR
 

@@ -40,6 +40,11 @@ type SyncResult struct {
 	Watch   *store.RolloutWatch `json:"watch,omitempty"`
 }
 
+type WatchMutationResult struct {
+	Message string              `json:"message,omitempty"`
+	Watch   *store.RolloutWatch `json:"watch,omitempty"`
+}
+
 func NewManager(st *store.Store, kc *kube.Client) *Manager {
 	return &Manager{store: st, kube: kc}
 }
@@ -112,10 +117,92 @@ func (m *Manager) SyncAll(ctx context.Context) {
 		return
 	}
 	for _, watch := range watches {
+		if !watch.Enabled {
+			continue
+		}
 		if _, err := m.Sync(ctx, watch.ID); err != nil && !errors.Is(err, ErrWatchNotFound) {
 			log.Printf("rollout watch: sync %s/%s: %v", watch.Namespace, watch.Deployment, err)
 		}
 	}
+}
+
+func (m *Manager) SetEnabled(ctx context.Context, id string, enabled bool) (*WatchMutationResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	watch, err := m.store.GetRolloutWatch(id)
+	if err != nil {
+		return nil, err
+	}
+	if watch == nil {
+		return nil, ErrWatchNotFound
+	}
+	if err := m.store.SetRolloutWatchEnabled(id, enabled); err != nil {
+		return nil, err
+	}
+	result := "disabled"
+	message := fmt.Sprintf("rollout watch disabled for %s/%s", watch.Namespace, watch.Deployment)
+	if enabled {
+		result = "enabled"
+		message = fmt.Sprintf("rollout watch enabled for %s/%s", watch.Namespace, watch.Deployment)
+	}
+	if err := m.store.UpdateRolloutWatchResult(id, result, ""); err != nil {
+		return nil, err
+	}
+	if err := m.store.AppendRolloutWatchEvent(id, store.RolloutWatchEvent{
+		Type:    result,
+		Result:  result,
+		Message: message,
+		TS:      time.Now().UnixMilli(),
+	}); err != nil {
+		return nil, err
+	}
+	updated, err := m.store.GetRolloutWatch(id)
+	if err != nil {
+		return nil, err
+	}
+	return &WatchMutationResult{Message: message, Watch: updated}, nil
+}
+
+func (m *Manager) Restart(ctx context.Context, id string) (*WatchMutationResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	watch, err := m.store.GetRolloutWatch(id)
+	if err != nil {
+		return nil, err
+	}
+	if watch == nil {
+		return nil, ErrWatchNotFound
+	}
+	if err := m.kube.RestartService(ctx, watch.Deployment, watch.Namespace); err != nil {
+		_ = m.store.UpdateRolloutWatchResult(id, "error", err.Error())
+		_ = m.store.AppendRolloutWatchEvent(id, store.RolloutWatchEvent{
+			Type:    "error",
+			Result:  "error",
+			Message: "failed to restart watched deployment",
+			Error:   err.Error(),
+			TS:      time.Now().UnixMilli(),
+		})
+		return nil, err
+	}
+	message := fmt.Sprintf("manual rollout restart requested for %s/%s", watch.Namespace, watch.Deployment)
+	if err := m.store.UpdateRolloutWatchResult(id, "restarted", ""); err != nil {
+		return nil, err
+	}
+	if err := m.store.AppendRolloutWatchEvent(id, store.RolloutWatchEvent{
+		Type:    "restarted",
+		Result:  "restarted",
+		Message: message,
+		TS:      time.Now().UnixMilli(),
+	}); err != nil {
+		return nil, err
+	}
+	updated, err := m.store.GetRolloutWatch(id)
+	if err != nil {
+		return nil, err
+	}
+	return &WatchMutationResult{Message: message, Watch: updated}, nil
 }
 
 func (m *Manager) syncWatch(ctx context.Context, watch *store.RolloutWatch) (*SyncResult, error) {

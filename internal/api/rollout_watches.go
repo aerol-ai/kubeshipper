@@ -15,7 +15,10 @@ func (s *Server) mountRolloutWatches(r chi.Router) {
 		g.Post("/", s.registerRolloutWatch)
 		g.Get("/", s.listRolloutWatches)
 		g.Get("/{id}", s.getRolloutWatch)
+		g.Post("/{id}/enable", s.enableRolloutWatch)
+		g.Post("/{id}/disable", s.disableRolloutWatch)
 		g.Post("/{id}/sync", s.syncRolloutWatch)
+		g.Post("/{id}/restart", s.restartRolloutWatch)
 		g.Delete("/{id}", s.deleteRolloutWatch)
 	})
 }
@@ -73,6 +76,44 @@ func (s *Server) syncRolloutWatch(w http.ResponseWriter, r *http.Request) {
 	}
 	id := chi.URLParam(r, "id")
 	out, err := s.deps.Rollouts.Sync(r.Context(), id)
+	if err != nil {
+		status := rolloutStatusCode(err)
+		writeJSON(w, status, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) enableRolloutWatch(w http.ResponseWriter, r *http.Request) {
+	s.mutateRolloutWatchEnabled(w, r, true)
+}
+
+func (s *Server) disableRolloutWatch(w http.ResponseWriter, r *http.Request) {
+	s.mutateRolloutWatchEnabled(w, r, false)
+}
+
+func (s *Server) mutateRolloutWatchEnabled(w http.ResponseWriter, r *http.Request, enabled bool) {
+	if s.deps.Rollouts == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "rollout watch manager is unavailable"})
+		return
+	}
+	id := chi.URLParam(r, "id")
+	out, err := s.deps.Rollouts.SetEnabled(r.Context(), id, enabled)
+	if err != nil {
+		status := rolloutStatusCode(err)
+		writeJSON(w, status, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) restartRolloutWatch(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Rollouts == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "rollout watch manager is unavailable"})
+		return
+	}
+	id := chi.URLParam(r, "id")
+	out, err := s.deps.Rollouts.Restart(r.Context(), id)
 	if err != nil {
 		status := rolloutStatusCode(err)
 		writeJSON(w, status, map[string]string{"error": err.Error()})

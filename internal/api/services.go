@@ -317,7 +317,7 @@ func writeJobAccepted(w http.ResponseWriter, serviceID, jobID string) {
 		"id":     serviceID,
 		"jobId":  jobID,
 		"status": "PENDING",
-		"stream": "/services/jobs/" + jobID + "/stream",
+		"stream": "/api/services/jobs/" + jobID + "/stream",
 	})
 }
 

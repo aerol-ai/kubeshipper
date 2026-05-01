@@ -7,13 +7,13 @@ HTTP call that triggers it.
 Variables used throughout:
 
 ```bash
-KS=http://localhost:3000
+KS=http://localhost:3000/api
 TOKEN=...      # AUTH_TOKEN if set, else any value (auth is bypassed)
 ```
 
 ---
 
-## /services — JSON-spec deployments
+## /api/services — JSON-spec deployments
 
 These exercise the `/services` API and the worker loop in
 `internal/worker/worker.go`. The lifecycle state machine is:
@@ -45,7 +45,7 @@ RESP=$(curl -s -X POST $KS/services \
     "hostname": "echo.example.com",
     "namespace": "default"
   }')
-# 202 → {"id":"echo","jobId":"<id>","status":"PENDING","stream":"/services/jobs/<id>/stream"}
+# 202 → {"id":"echo","jobId":"<id>","status":"PENDING","stream":"/api/services/jobs/<id>/stream"}
 
 JOB=$(echo "$RESP" | jq -r .jobId)
 curl -N -H "Authorization: Bearer $TOKEN" "$KS$(echo "$RESP" | jq -r .stream)"
@@ -209,7 +209,7 @@ already terminated by the time drift is detected. Observability is via
 
 ---
 
-## /charts — Helm chart management
+## /api/charts — Helm chart management
 
 These exercise `internal/api/charts.go` and `internal/helm/*`. Source of truth
 for release state is Helm's release Secrets, not SQLite.
@@ -426,7 +426,7 @@ Observable in the response:
 ```
 
 …and a separate job with operation `drift-resync` will appear in
-`/charts/jobs/...`.
+`/api/charts/jobs/...`.
 
 ### UC-25. Roll back to a previous revision
 

@@ -1,5 +1,7 @@
 # /charts API — Helm chart management
 
+Browser clients use the same handlers at `/api/charts`.
+
 The `/charts` API drives the Helm v3 Go SDK in-process and exposes
 install / upgrade / uninstall / rollback / disable-resource over HTTP, with
 Server-Sent Events for progress.
@@ -26,21 +28,22 @@ imported by the same binary that serves HTTP.
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/charts` | Install (returns 202 + jobId + SSE URL) |
-| `GET`  | `/charts?namespace=&all=` | Live list from Helm |
-| `POST` | `/charts/preflight` | Run checks without installing |
-| `GET`  | `/charts/:release?namespace=` | Release detail + values + manifest + disabled list |
-| `PATCH`| `/charts/:release?namespace=` | Upgrade (auto drift-resync) |
-| `DELETE` | `/charts/:release?namespace=&force=true` | Uninstall + reap PVCs |
-| `POST` | `/charts/:release/rollback?namespace=` | Roll back to revision |
-| `GET`  | `/charts/:release/history?namespace=` | Revisions |
-| `GET`  | `/charts/:release/values?namespace=` | Applied values |
-| `GET`  | `/charts/:release/manifest?namespace=` | Rendered manifests |
-| `POST` | `/charts/:release/resources/:kind/:name/disable?namespace=&force=true` | Strip a single resource via post-renderer |
-| `POST` | `/charts/:release/resources/:kind/:name/enable?namespace=` | Re-add a stripped resource |
-| `DELETE` | `/charts/:release/resources/:kind/:name?namespace=&force=true` | Alias for disable |
-| `GET`  | `/charts/jobs/:jobId` | Job status + accumulated events |
-| `GET`  | `/charts/jobs/:jobId/stream` | Server-Sent Events |
+| `POST` | `/api/charts` | Install (returns 202 + jobId + SSE URL) |
+| `GET`  | `/api/charts?namespace=&all=` | Live list from Helm |
+| `POST` | `/api/charts/preflight` | Run checks without installing |
+| `GET`  | `/api/charts/:release?namespace=` | Release detail + values + manifest + disabled list |
+| `PATCH`| `/api/charts/:release?namespace=` | Upgrade (auto drift-resync) |
+| `DELETE` | `/api/charts/:release?namespace=&force=true` | Uninstall + reap PVCs |
+| `POST` | `/api/charts/:release/rollback?namespace=` | Roll back to revision |
+| `GET`  | `/api/charts/:release/history?namespace=` | Revisions |
+| `GET`  | `/api/charts/:release/diff?namespace=` | Presence drift vs live cluster |
+| `GET`  | `/api/charts/:release/values?namespace=` | Applied values |
+| `GET`  | `/api/charts/:release/manifest?namespace=` | Rendered manifests |
+| `POST` | `/api/charts/:release/resources/:kind/:name/disable?namespace=&force=true` | Strip a single resource via post-renderer |
+| `POST` | `/api/charts/:release/resources/:kind/:name/enable?namespace=` | Re-add a stripped resource |
+| `DELETE` | `/api/charts/:release/resources/:kind/:name?namespace=&force=true` | Alias for disable |
+| `GET`  | `/api/charts/jobs/:jobId` | Job status + accumulated events |
+| `GET`  | `/api/charts/jobs/:jobId/stream` | Server-Sent Events |
 
 ## Required RBAC
 
@@ -117,9 +120,9 @@ Fields:
 | `service` | one of `deployment` / `service` | Alias for callers that think in service names |
 | `container` | no | Required only when the Deployment has multiple containers |
 
-The `PATCH /charts/:release` upgrade request accepts the same `rolloutWatch`
+The `PATCH /api/charts/:release` upgrade request accepts the same `rolloutWatch`
 block, letting each chart upgrade refresh the watch registration without a
-separate `/rollout-watches` call.
+separate `/api/rollout-watches` call.
 
 ## Response (202 Accepted)
 
@@ -128,7 +131,7 @@ separate `/rollout-watches` call.
   "jobId": "5d3a8f1b...",
   "release": "aerol-stack",
   "namespace": "aerol-system",
-  "stream": "/charts/jobs/5d3a8f1b.../stream",
+  "stream": "/api/charts/jobs/5d3a8f1b.../stream",
   "status": "pending"
 }
 ```
@@ -177,7 +180,7 @@ filter rendered manifests against a `disabled_resources` ledger.
 
 ```bash
 # Disable just langfuse-worker (force flag required)
-curl -X POST 'http://kubeshipper/charts/aerol-stack/resources/Deployment/langfuse-worker/disable?namespace=aerol-system&force=true' \
+curl -X POST 'http://kubeshipper/api/charts/aerol-stack/resources/Deployment/langfuse-worker/disable?namespace=aerol-system&force=true' \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d '{
@@ -206,12 +209,12 @@ the API returns 400. This is a friction step, not a security boundary —
 
 | Op | force needed |
 |---|---|
-| `DELETE /charts/:release` (uninstall) | yes |
+| `DELETE /api/charts/:release` (uninstall) | yes |
 | `POST .../resources/.../disable` | yes |
 | `DELETE .../resources/.../...` (alias for disable) | yes |
 | `POST .../resources/.../enable` | no |
-| `PATCH /charts/:release` (upgrade) | no |
-| `POST /charts/:release/rollback` | no |
+| `PATCH /api/charts/:release` (upgrade) | no |
+| `POST /api/charts/:release/rollback` | no |
 
 ## Building
 

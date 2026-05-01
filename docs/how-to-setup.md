@@ -9,8 +9,8 @@ End-to-end guide. Covers local development, Docker, and Kubernetes deployment.
 - [5. Expose KubeShipper externally (Ingress)](#5-expose-kubeshipper-externally-ingress)
 - [6. Deploy to Kubernetes (raw manifests)](#6-deploy-to-kubernetes-raw-manifests)
 - [7. Configuration reference](#7-configuration-reference)
-- [8. Wiring credentials for /charts](#8-wiring-credentials-for-charts)
-- [9. First install via /charts (smoke test)](#9-first-install-via-charts-smoke-test)
+- [8. Wiring credentials for /api/charts](#8-wiring-credentials-for-apicharts)
+- [9. First install via /api/charts (smoke test)](#9-first-install-via-apicharts-smoke-test)
 - [10. Tear down](#10-tear-down)
 - [11. Troubleshooting](#11-troubleshooting)
 
@@ -30,7 +30,7 @@ Optional, depending on what you'll do:
 |---|---|
 | Build / run locally | Go 1.22+ |
 | Build the container image | Docker (or any OCI builder — buildah, nerdctl, etc.) |
-| Use the `/charts` API | Cluster-admin on the cluster (see Section 4 + `rbac.helmAdmin`) |
+| Use the `/api/charts` API | Cluster-admin on the cluster (see Section 4 + `rbac.helmAdmin`) |
 | Install charts that need TLS via cert-manager | cert-manager + Traefik (or similar Ingress) installed in the cluster |
 | Install charts whose ClusterIssuer uses Cloudflare DNS01 | A Cloudflare API token Secret — KubeShipper can provision this for you (see Section 8) |
 
@@ -61,14 +61,14 @@ Open another terminal:
 curl http://localhost:3000/health
 # {"started_at":"...","status":"ok","version":"dev"}
 
-curl http://localhost:3000/charts
+curl http://localhost:3000/api/charts
 # {"releases":[ ... live Helm releases from your cluster ... ]}
 ```
 
-Quick `/services` test (creates a real Deployment + Service and streams the rollout):
+Quick `/api/services` test (creates a real Deployment + Service and streams the rollout):
 
 ```bash
-RESP=$(curl -s -X POST http://localhost:3000/services \
+RESP=$(curl -s -X POST http://localhost:3000/api/services \
   -H 'Content-Type: application/json' \
   -d '{
     "name": "demo-echo",
@@ -77,17 +77,17 @@ RESP=$(curl -s -X POST http://localhost:3000/services \
     "replicas": 1
   }')
 echo "$RESP"
-# {"id":"demo-echo","jobId":"<uuid>","status":"PENDING","stream":"/services/jobs/<uuid>/stream"}
+# {"id":"demo-echo","jobId":"<uuid>","status":"PENDING","stream":"/api/services/jobs/<uuid>/stream"}
 
 # Stream the rollout to completion
 JOB=$(echo "$RESP" | jq -r .jobId)
-curl -N "http://localhost:3000/services/jobs/$JOB/stream"
+curl -N "http://localhost:3000/api/services/jobs/$JOB/stream"
 
 # Confirm in the cluster
 kubectl get deploy,svc -l app=demo-echo
 
 # Tear down (also returns a streaming job)
-DRESP=$(curl -s -X DELETE http://localhost:3000/services/demo-echo)
+DRESP=$(curl -s -X DELETE http://localhost:3000/api/services/demo-echo)
 curl -N "http://localhost:3000$(echo "$DRESP" | jq -r .stream)"
 ```
 
@@ -520,11 +520,11 @@ The namespace is created if missing. Existing secrets are updated in place.
 
 ---
 
-## 9. First install via /charts (smoke test)
+## 9. First install via /api/charts (smoke test)
 
 ```bash
 TOKEN=...      # the auth.token you set
-KS=http://localhost:3000
+KS=http://localhost:3000/api
 
 # 1. Pre-flight
 curl -X POST $KS/charts/preflight \
