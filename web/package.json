@@ -1,0 +1,13 @@
+{
+  "name": "kubeshipper-dashboard",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "build": "mkdir -p ../internal/ui/static && cp index.html app.css ../internal/ui/static/ && bun build main.jsx --outfile ../internal/ui/static/app.js --target browser --minify"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.30.1"
+  }
+}

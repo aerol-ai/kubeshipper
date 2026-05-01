@@ -1,12 +1,13 @@
 # KubeShipper
 
-A lightweight HTTP API service that manages Kubernetes workloads. Two APIs:
+A lightweight deployment control plane for Kubernetes workloads.
 
-- **`/services`** — send a JSON spec, KubeShipper produces Deployment + Service + Ingress and applies via server-side apply.
-- **`/charts`** — drive the Helm v3 SDK over HTTP: install / upgrade / uninstall / rollback / disable individual chart resources, with SSE progress streaming.
-- **`/rollout-watches`** — register existing Deployments for automatic image-digest checks every minute and patch them when the remote digest changes.
+- **`/`** — React dashboard for Helm releases, service CRUD, rollout automation, and live operation streaming.
+- **`/api/services`** — send a JSON spec, KubeShipper produces Deployment + Service + Ingress and applies via server-side apply.
+- **`/api/charts`** — drive the Helm v3 SDK over HTTP: install / upgrade / uninstall / rollback / disable individual chart resources, with SSE progress streaming.
+- **`/api/rollout-watches`** — register existing Deployments for automatic image-digest checks every minute and patch them when the remote digest changes.
 
-Single Go binary, single SQLite file for local state, no sidecars.
+Single Go binary, single SQLite file for local state, no sidecars. Legacy top-level API routes (`/services`, `/charts`, `/rollout-watches`) remain mounted for existing clients, but the browser dashboard uses `/api/*`.
 
 ## Table of Contents
 
@@ -22,6 +23,8 @@ Single Go binary, single SQLite file for local state, no sidecars.
 ---
 
 ## API Reference
+
+All resource routes below are available under `/api/*` for browser clients. Legacy top-level routes are still accepted for backward compatibility.
 
 ### `/services` — JSON-spec deployments
 
@@ -85,7 +88,10 @@ When a chart install or upgrade should also configure automatic digest-based res
 | `POST` | `/rollout-watches` | Register or refresh a watched Deployment |
 | `GET` | `/rollout-watches` | List watched Deployments + latest sync state |
 | `GET` | `/rollout-watches/:id` | Read one watch, including its timeline |
+| `POST` | `/rollout-watches/:id/enable` | Re-enable automatic digest reconciliation |
+| `POST` | `/rollout-watches/:id/disable` | Pause automatic digest reconciliation |
 | `POST` | `/rollout-watches/:id/sync` | Trigger an immediate digest check |
+| `POST` | `/rollout-watches/:id/restart` | Force a rollout restart immediately |
 | `DELETE` | `/rollout-watches/:id` | Remove a watch |
 
 Behavior:
@@ -110,8 +116,10 @@ Example registration:
 
 | Method | Path | Description |
 |--------|------|-------------|
+| `GET` | `/` | React dashboard shell |
 | `GET` | `/health` | Liveness/readiness check |
-| `GET` | `/` | Service info |
+| `GET` | `/api/` | JSON API docs |
+| `GET` | `/api/health` | JSON health endpoint |
 
 ### Example request body
 
@@ -134,13 +142,22 @@ Example registration:
 
 ### Authentication
 
-When `AUTH_TOKEN` is set, all `/services`, `/charts`, and `/rollout-watches` endpoints require:
+When `AUTH_TOKEN` is set, all `/services`, `/charts`, `/rollout-watches`, and `/api/*` resource endpoints require either:
 
 ```
 Authorization: Bearer <your-token>
 ```
 
-`/health` and `/` are always public (used by K8s probes).
+or a JWT session cookie minted by the dashboard login flow:
+
+```text
+POST /api/auth/login
+{ "token": "<AUTH_TOKEN>" }
+```
+
+That endpoint sets an `HttpOnly` cookie used automatically by the dashboard for all subsequent `/api/*` requests. Session inspection and logout are available at `/api/auth/session` and `/api/auth/logout`.
+
+`/health`, `/`, `/api/`, and `/api/health` are always public.
 
 ---
 
@@ -161,11 +178,18 @@ MANAGED_NAMESPACES=default go run .
 
 The server starts on `http://localhost:3000`. Your local `~/.kube/config` is used automatically when running outside a cluster.
 
+If you change the dashboard source in `web/`, rebuild the embedded assets with:
+
+```bash
+cd web && bun install && bun run build
+```
+
 Quick smoke test:
 
 ```bash
 curl http://localhost:3000/health
-curl http://localhost:3000/charts        # lists Helm releases in your current cluster
+curl http://localhost:3000/api/          # API docs JSON
+curl http://localhost:3000/api/charts    # lists Helm releases in your current cluster
 ```
 
 ---

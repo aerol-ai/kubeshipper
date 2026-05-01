@@ -11,6 +11,9 @@ dist
 coverage
 *.lcov
 
+internal/ui/static/app.js
+internal/ui/static/*
+
 # logs
 logs
 _.log

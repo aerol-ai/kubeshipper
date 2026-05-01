@@ -81,6 +81,7 @@ func (s *Store) migrate() error {
 			namespace       TEXT NOT NULL,
 			deployment      TEXT NOT NULL,
 			container       TEXT NOT NULL DEFAULT '',
+			enabled         INTEGER NOT NULL DEFAULT 1,
 			tracked_image   TEXT NOT NULL,
 			current_image   TEXT NOT NULL DEFAULT '',
 			current_digest  TEXT NOT NULL DEFAULT '',
@@ -96,6 +97,7 @@ func (s *Store) migrate() error {
 			last_checked_at INTEGER,
 			last_synced_at  INTEGER
 		)`,
+		`ALTER TABLE rollout_watches ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS rollout_watches_target_idx ON rollout_watches(namespace, deployment, container)`,
 	}
 	for _, q := range stmts {

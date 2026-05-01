@@ -199,6 +199,20 @@ func TestServerRootEndpoint(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Errorf("want 200, got %d", rec.Code)
 	}
+	if got := rec.Header().Get("Content-Type"); !strings.Contains(got, "text/html") {
+		t.Fatalf("want text/html content-type, got %q", got)
+	}
+	if !strings.Contains(rec.Body.String(), "<div id=\"root\"></div>") {
+		t.Fatalf("expected embedded dashboard HTML")
+	}
+}
+
+func TestServerAPIRootEndpoint(t *testing.T) {
+	srv := newTestServer(t)
+	rec := do(srv, "GET", "/api/", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", rec.Code)
+	}
 	var body map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("parse body: %v", err)

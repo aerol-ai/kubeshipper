@@ -12,6 +12,7 @@ type RolloutWatch struct {
 	Namespace     string              `json:"namespace"`
 	Deployment    string              `json:"deployment"`
 	Container     string              `json:"container,omitempty"`
+	Enabled       bool                `json:"enabled"`
 	TrackedImage  string              `json:"tracked_image"`
 	CurrentImage  string              `json:"current_image,omitempty"`
 	CurrentDigest string              `json:"current_digest,omitempty"`
@@ -85,10 +86,10 @@ func (s *Store) UpsertRolloutWatch(namespace, deployment, container, trackedImag
 	}
 	_, err = s.DB.Exec(
 		`INSERT INTO rollout_watches (
-			id, namespace, deployment, container, tracked_image,
+			id, namespace, deployment, container, enabled, tracked_image,
 			current_image, current_digest, last_result,
 			created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, 'registered', ?, ?)`,
+		) VALUES (?, ?, ?, ?, 1, ?, ?, ?, 'registered', ?, ?)`,
 		id, namespace, deployment, container, trackedImage, currentImage, currentDigest, now, now,
 	)
 	if err != nil {
@@ -100,7 +101,7 @@ func (s *Store) UpsertRolloutWatch(namespace, deployment, container, trackedImag
 
 func (s *Store) GetRolloutWatch(id string) (*RolloutWatch, error) {
 	row := s.DB.QueryRow(
-		`SELECT id, namespace, deployment, container, tracked_image, current_image, current_digest,
+		`SELECT id, namespace, deployment, container, enabled, tracked_image, current_image, current_digest,
 		        latest_image, latest_digest, last_result, last_error, check_count, sync_count,
 		        events_jsonl, created_at, updated_at, last_checked_at, last_synced_at
 		   FROM rollout_watches
@@ -112,7 +113,7 @@ func (s *Store) GetRolloutWatch(id string) (*RolloutWatch, error) {
 
 func (s *Store) ListRolloutWatches() ([]*RolloutWatch, error) {
 	rows, err := s.DB.Query(
-		`SELECT id, namespace, deployment, container, tracked_image, current_image, current_digest,
+		`SELECT id, namespace, deployment, container, enabled, tracked_image, current_image, current_digest,
 		        latest_image, latest_digest, last_result, last_error, check_count, sync_count,
 		        events_jsonl, created_at, updated_at, last_checked_at, last_synced_at
 		   FROM rollout_watches
@@ -136,6 +137,26 @@ func (s *Store) ListRolloutWatches() ([]*RolloutWatch, error) {
 
 func (s *Store) DeleteRolloutWatch(id string) error {
 	_, err := s.DB.Exec(`DELETE FROM rollout_watches WHERE id = ?`, id)
+	return err
+}
+
+func (s *Store) SetRolloutWatchEnabled(id string, enabled bool) error {
+	enabledInt := 0
+	if enabled {
+		enabledInt = 1
+	}
+	_, err := s.DB.Exec(
+		`UPDATE rollout_watches SET enabled = ?, updated_at = ? WHERE id = ?`,
+		enabledInt, time.Now().UnixMilli(), id,
+	)
+	return err
+}
+
+func (s *Store) UpdateRolloutWatchResult(id, result, errText string) error {
+	_, err := s.DB.Exec(
+		`UPDATE rollout_watches SET last_result = ?, last_error = ?, updated_at = ? WHERE id = ?`,
+		result, errText, time.Now().UnixMilli(), id,
+	)
 	return err
 }
 
@@ -216,7 +237,7 @@ func (s *Store) AppendRolloutWatchEvent(id string, ev RolloutWatchEvent) error {
 
 func (s *Store) getRolloutWatchByTarget(namespace, deployment, container string) (*RolloutWatch, error) {
 	row := s.DB.QueryRow(
-		`SELECT id, namespace, deployment, container, tracked_image, current_image, current_digest,
+		`SELECT id, namespace, deployment, container, enabled, tracked_image, current_image, current_digest,
 		        latest_image, latest_digest, last_result, last_error, check_count, sync_count,
 		        events_jsonl, created_at, updated_at, last_checked_at, last_synced_at
 		   FROM rollout_watches
@@ -240,6 +261,7 @@ func scanRolloutWatch(r rowScanner) (*RolloutWatch, error) {
 		&watch.Namespace,
 		&watch.Deployment,
 		&watch.Container,
+		&watch.Enabled,
 		&watch.TrackedImage,
 		&watch.CurrentImage,
 		&watch.CurrentDigest,

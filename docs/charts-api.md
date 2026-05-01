@@ -1,5 +1,8 @@
 # /charts API — Helm chart management
 
+Browser clients use the same handlers at `/api/charts`. The legacy `/charts`
+paths remain mounted for existing automation and scripts.
+
 The `/charts` API drives the Helm v3 Go SDK in-process and exposes
 install / upgrade / uninstall / rollback / disable-resource over HTTP, with
 Server-Sent Events for progress.
