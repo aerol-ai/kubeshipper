@@ -32,12 +32,13 @@ RUN apk add --no-cache tini ca-certificates && \
 
 COPY --from=build /out/kubeshipper /usr/local/bin/kubeshipper
 
-RUN mkdir -p /data && chown ks:ks /data
+RUN mkdir -p /data /home/ks/.kube && chown -R ks:ks /data /home/ks
 
 USER ks
 
 ENV PORT=3000 \
-    DB_PATH=/data/kubeshipper.sqlite
+    DB_PATH=/data/kubeshipper.sqlite \
+    HOME=/home/ks
 
 EXPOSE 3000
 

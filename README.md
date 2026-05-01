@@ -750,6 +750,26 @@ docker run --rm \
   kubeshipper:local
 ```
 
+## Running With Docker Compose
+
+There was no compose file before because KubeShipper does not depend on a separate Postgres, Redis, or sidecar service. The app is a single container with embedded SQLite; the only external runtime dependency is Kubernetes access through your kubeconfig.
+
+The repository now includes [docker-compose.yml](docker-compose.yml) for local containerized runs:
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+What the compose setup provides:
+
+- Builds the current Dockerfile
+- Persists SQLite state in a named Docker volume
+- Mounts your host `~/.kube` directory read-only into `/home/ks/.kube`
+- Exposes the app on `http://localhost:3000`
+
+If your kubeconfig is not at `~/.kube/config`, edit the bind mount in `docker-compose.yml` before starting the stack.
+
 ## CI/CD — Pushing to GCR
 
 The GitHub Actions workflow at `.github/workflows/build-push-gcr.yml` builds and pushes to `ghcr.io` on every push to `main` and on version tags (`v*`).

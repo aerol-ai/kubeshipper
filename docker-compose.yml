@@ -1,0 +1,24 @@
+services:
+  kubeshipper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: kubeshipper:local
+    container_name: kubeshipper
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:${PORT:-3000}"
+    environment:
+      PORT: ${PORT:-3000}
+      AUTH_TOKEN: ${AUTH_TOKEN:-}
+      MANAGED_NAMESPACES: ${MANAGED_NAMESPACES:-default}
+      DB_PATH: /data/kubeshipper.sqlite
+      APP_VERSION: ${APP_VERSION:-docker-compose}
+      HOME: /home/ks
+      KUBECONFIG: /home/ks/.kube/config
+    volumes:
+      - kubeshipper-data:/data
+      - ${HOME}/.kube:/home/ks/.kube:ro
+
+volumes:
+  kubeshipper-data:
