@@ -814,6 +814,14 @@ func TestHandlerReleaseHistory_MissingNamespace(t *testing.T) {
 	}
 }
 
+func TestHandlerReleaseDiff_MissingNamespace(t *testing.T) {
+	srv := newTestServer(t)
+	rec := do(srv, "GET", "/charts/myrelease/diff", nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("want 400 for missing namespace, got %d", rec.Code)
+	}
+}
+
 func TestHandlerReleaseValues_MissingNamespace(t *testing.T) {
 	srv := newTestServer(t)
 	rec := do(srv, "GET", "/charts/myrelease/values", nil)

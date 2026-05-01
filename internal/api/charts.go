@@ -29,6 +29,7 @@ func (s *Server) mountCharts(r chi.Router) {
 		g.Delete("/{release}", s.uninstallRelease)
 		g.Post("/{release}/rollback", s.rollbackRelease)
 		g.Get("/{release}/history", s.releaseHistory)
+		g.Get("/{release}/diff", s.releaseDiff)
 		g.Get("/{release}/values", s.releaseValues)
 		g.Get("/{release}/manifest", s.releaseManifest)
 
@@ -293,6 +294,21 @@ func (s *Server) releaseHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"entries": out})
+}
+
+func (s *Server) releaseDiff(w http.ResponseWriter, r *http.Request) {
+	release := chi.URLParam(r, "release")
+	ns, ok := mustQuery(r, "namespace")
+	if !ok {
+		writeJSON(w, 400, map[string]string{"error": "namespace query param required"})
+		return
+	}
+	out, err := s.deps.Helm.Diff(r.Context(), release, ns)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, out)
 }
 
 func (s *Server) releaseValues(w http.ResponseWriter, r *http.Request) {

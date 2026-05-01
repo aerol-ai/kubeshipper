@@ -55,7 +55,7 @@ streaming is the only path.
 | `PATCH` | `/charts/:release?namespace=` | Upgrade (auto drift-resync) |
 | `DELETE` | `/charts/:release?namespace=&force=true` | Uninstall + reap PVCs |
 | `POST` | `/charts/:release/rollback?namespace=` | Roll back to revision |
-| `GET` | `/charts/:release/history\|values\|manifest?namespace=` | Read paths |
+| `GET` | `/charts/:release/history\|diff\|values\|manifest?namespace=` | Read paths |
 | `POST` | `/charts/:release/resources/:kind/:name/disable?namespace=&force=true` | Strip a single resource via post-renderer |
 | `POST` | `/charts/:release/resources/:kind/:name/enable?namespace=` | Re-add a stripped resource |
 | `GET` | `/charts/jobs/:jobId\|/stream` | Job state + SSE event stream |

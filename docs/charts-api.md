@@ -37,6 +37,7 @@ imported by the same binary that serves HTTP.
 | `DELETE` | `/charts/:release?namespace=&force=true` | Uninstall + reap PVCs |
 | `POST` | `/charts/:release/rollback?namespace=` | Roll back to revision |
 | `GET`  | `/charts/:release/history?namespace=` | Revisions |
+| `GET`  | `/charts/:release/diff?namespace=` | Presence drift vs live cluster |
 | `GET`  | `/charts/:release/values?namespace=` | Applied values |
 | `GET`  | `/charts/:release/manifest?namespace=` | Rendered manifests |
 | `POST` | `/charts/:release/resources/:kind/:name/disable?namespace=&force=true` | Strip a single resource via post-renderer |

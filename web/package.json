@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
-    "build": "mkdir -p ../internal/ui/static && cp index.html app.css ../internal/ui/static/ && bun build main.jsx --outfile ../internal/ui/static/app.js --target browser --minify"
+    "build": "rm -rf ../internal/ui/static && bun build ./index.html --outdir ../internal/ui/static --target browser --minify"
   },
   "dependencies": {
     "react": "^18.3.1",
