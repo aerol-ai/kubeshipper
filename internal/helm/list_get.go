@@ -121,12 +121,28 @@ func toReleaseInfo(r *release.Release) ReleaseInfo {
 		app = r.Chart.Metadata.AppVersion
 	}
 	return ReleaseInfo{
-		Name:       r.Name,
-		Namespace:  r.Namespace,
-		Revision:   r.Version,
-		Status:     string(r.Info.Status),
-		Chart:      chart,
-		AppVersion: app,
-		UpdatedAt:  r.Info.LastDeployed.Format("2006-01-02T15:04:05Z07:00"),
+		Name:         r.Name,
+		Namespace:    r.Namespace,
+		Revision:     r.Version,
+		Status:       string(r.Info.Status),
+		Chart:        chart,
+		ChartName:    chartName(r),
+		ChartVersion: chartVersion(r),
+		AppVersion:   app,
+		UpdatedAt:    r.Info.LastDeployed.Format("2006-01-02T15:04:05Z07:00"),
 	}
+}
+
+func chartName(r *release.Release) string {
+	if r.Chart == nil || r.Chart.Metadata == nil {
+		return ""
+	}
+	return r.Chart.Metadata.Name
+}
+
+func chartVersion(r *release.Release) string {
+	if r.Chart == nil || r.Chart.Metadata == nil {
+		return ""
+	}
+	return r.Chart.Metadata.Version
 }

@@ -98,13 +98,15 @@ type PreflightResp struct {
 }
 
 type ReleaseInfo struct {
-	Name       string `json:"name"`
-	Namespace  string `json:"namespace"`
-	Revision   int    `json:"revision"`
-	Status     string `json:"status"`
-	Chart      string `json:"chart"`
-	AppVersion string `json:"app_version,omitempty"`
-	UpdatedAt  string `json:"updated_at,omitempty"`
+	Name         string `json:"name"`
+	Namespace    string `json:"namespace"`
+	Revision     int    `json:"revision"`
+	Status       string `json:"status"`
+	Chart        string `json:"chart"`
+	ChartName    string `json:"chart_name,omitempty"`
+	ChartVersion string `json:"chart_version,omitempty"`
+	AppVersion   string `json:"app_version,omitempty"`
+	UpdatedAt    string `json:"updated_at,omitempty"`
 }
 
 type GetResp struct {
@@ -112,6 +114,33 @@ type GetResp struct {
 	Manifest   string                      `json:"manifest"`
 	ValuesYAML string                      `json:"values_yaml"`
 	Disabled   []DisabledResourceFromStore `json:"disabled"`
+	Source     *ChartSourceSummary         `json:"source,omitempty"`
+	Monitor    *ChartMonitorState          `json:"monitor,omitempty"`
+}
+
+type ChartSourceSummary struct {
+	Type           string `json:"type"`
+	URL            string `json:"url,omitempty"`
+	RepoURL        string `json:"repoUrl,omitempty"`
+	Chart          string `json:"chart,omitempty"`
+	Version        string `json:"version,omitempty"`
+	Ref            string `json:"ref,omitempty"`
+	Path           string `json:"path,omitempty"`
+	AuthConfigured bool   `json:"auth_configured,omitempty"`
+}
+
+type ChartMonitorState struct {
+	MonitorEnabled bool   `json:"monitor_enabled"`
+	SourceType     string `json:"source_type,omitempty"`
+	AuthConfigured bool   `json:"auth_configured,omitempty"`
+	CurrentVersion string `json:"current_version,omitempty"`
+	LatestVersion  string `json:"latest_version,omitempty"`
+	LastResult     string `json:"last_result,omitempty"`
+	LastError      string `json:"last_error,omitempty"`
+	CheckCount     int64  `json:"check_count"`
+	SyncCount      int64  `json:"sync_count"`
+	LastCheckedAt  string `json:"last_checked_at,omitempty"`
+	LastSyncedAt   string `json:"last_synced_at,omitempty"`
 }
 
 type DisabledResourceFromStore struct {

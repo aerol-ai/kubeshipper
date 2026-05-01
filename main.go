@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/aerol-ai/kubeshipper/internal/api"
+	"github.com/aerol-ai/kubeshipper/internal/chartmonitor"
 	"github.com/aerol-ai/kubeshipper/internal/helm"
 	"github.com/aerol-ai/kubeshipper/internal/kube"
 	"github.com/aerol-ai/kubeshipper/internal/rollout"
@@ -64,15 +65,17 @@ func main() {
 	}
 
 	rolloutMgr := rollout.NewManager(st, kubeCli)
+	chartMonitorMgr := chartmonitor.NewManager(st, helmMgr)
 
 	srv := api.NewServer(api.Deps{
-		Store:     st,
-		Kube:      kubeCli,
-		Helm:      helmMgr,
-		Rollouts:  rolloutMgr,
-		AuthToken: os.Getenv("AUTH_TOKEN"),
-		StartedAt: time.Now().UTC().Format(time.RFC3339),
-		Version:   envOr("APP_VERSION", "dev"),
+		Store:        st,
+		Kube:         kubeCli,
+		Helm:         helmMgr,
+		ChartMonitor: chartMonitorMgr,
+		Rollouts:     rolloutMgr,
+		AuthToken:    os.Getenv("AUTH_TOKEN"),
+		StartedAt:    time.Now().UTC().Format(time.RFC3339),
+		Version:      envOr("APP_VERSION", "dev"),
 	})
 
 	httpSrv := &http.Server{
@@ -84,7 +87,7 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	wkr := worker.New(st, kubeCli, rolloutMgr)
+	wkr := worker.New(st, kubeCli, rolloutMgr, chartMonitorMgr)
 	go wkr.Run(ctx)
 
 	go func() {

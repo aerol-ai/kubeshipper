@@ -46,7 +46,6 @@ export function OverviewPage({ requestJson, notify, onUnauthorized }) {
 		<div className="view-grid">
 			<section className="hero-card">
 				<div>
-					<span className="eyebrow">Realtime posture</span>
 					<h3 className="hero-title">Run cluster changes with live feedback instead of terminal archaeology.</h3>
 					<p className="hero-copy">
 						This deck keeps the existing KubeShipper API intact while putting Helm operations, service mutations, rollout watches, release diff, and log tails in one operational UI.

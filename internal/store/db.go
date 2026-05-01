@@ -76,6 +76,26 @@ func (s *Store) migrate() error {
 			payload_hash  TEXT,
 			outcome       TEXT
 		)`,
+		`CREATE TABLE IF NOT EXISTS chart_release_configs (
+			release                TEXT NOT NULL,
+			namespace              TEXT NOT NULL,
+			source_json            TEXT NOT NULL DEFAULT '',
+			source_type            TEXT NOT NULL DEFAULT '',
+			source_auth_configured INTEGER NOT NULL DEFAULT 0,
+			monitor_enabled        INTEGER NOT NULL DEFAULT 0,
+			current_version        TEXT NOT NULL DEFAULT '',
+			latest_version         TEXT NOT NULL DEFAULT '',
+			last_result            TEXT NOT NULL DEFAULT '',
+			last_error             TEXT NOT NULL DEFAULT '',
+			check_count            INTEGER NOT NULL DEFAULT 0,
+			sync_count             INTEGER NOT NULL DEFAULT 0,
+			created_at             INTEGER NOT NULL,
+			updated_at             INTEGER NOT NULL,
+			last_checked_at        INTEGER,
+			last_synced_at         INTEGER,
+			PRIMARY KEY (release, namespace)
+		)`,
+		`CREATE INDEX IF NOT EXISTS chart_release_monitor_idx ON chart_release_configs(monitor_enabled, updated_at)`,
 		`CREATE TABLE IF NOT EXISTS rollout_watches (
 			id              TEXT PRIMARY KEY,
 			namespace       TEXT NOT NULL,

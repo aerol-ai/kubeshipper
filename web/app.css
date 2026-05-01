@@ -223,6 +223,10 @@ button {
   line-height: 1.5;
 }
 
+.code-area {
+  min-height: 320px;
+}
+
 .button-row,
 .inline-actions,
 .toolbar,
@@ -548,6 +552,18 @@ button {
   gap: 12px;
 }
 
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.surface-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
 .summary-card {
   padding: 14px 16px;
   border-radius: var(--radius-lg);
@@ -646,6 +662,11 @@ button {
   gap: 16px;
 }
 
+.stack-tight {
+  display: grid;
+  gap: 12px;
+}
+
 .card-header {
   display: flex;
   justify-content: space-between;
@@ -714,6 +735,23 @@ button {
   border-collapse: collapse;
   min-width: 720px;
   font-size: 13px;
+}
+
+.table.table-clickable tbody tr {
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.table.table-clickable tbody tr:hover {
+  background: rgba(15, 118, 110, 0.04);
+}
+
+.table.table-clickable tbody tr.row-selected {
+  background: var(--accent-soft);
+}
+
+.table.table-clickable tbody tr.row-selected .row-subtitle {
+  color: var(--accent-strong);
 }
 
 .table th,
@@ -916,6 +954,10 @@ button {
   .summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 960px) {
@@ -934,7 +976,9 @@ button {
   .field-grid,
   .field-grid.three,
   .status-grid,
-  .summary-grid {
+  .summary-grid,
+  .detail-grid,
+  .surface-grid {
     grid-template-columns: 1fr;
   }
 

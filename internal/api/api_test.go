@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aerol-ai/kubeshipper/internal/chartmonitor"
 	helmtypes "github.com/aerol-ai/kubeshipper/internal/helm"
 	"github.com/aerol-ai/kubeshipper/internal/kube"
 	"github.com/aerol-ai/kubeshipper/internal/rollout"
@@ -51,13 +52,14 @@ func newTestServer(t *testing.T) *Server {
 	st := newAPITestStore(t)
 	kc := newTestKubeClient()
 	return NewServer(Deps{
-		Store:     st,
-		Kube:      kc,
-		Helm:      nil,
-		Rollouts:  rollout.NewManager(st, kc),
-		AuthToken: "",
-		StartedAt: "2024-01-01T00:00:00Z",
-		Version:   "test",
+		Store:        st,
+		Kube:         kc,
+		Helm:         nil,
+		ChartMonitor: chartmonitor.NewManager(st, nil),
+		Rollouts:     rollout.NewManager(st, kc),
+		AuthToken:    "",
+		StartedAt:    "2024-01-01T00:00:00Z",
+		Version:      "test",
 	})
 }
 
@@ -67,13 +69,14 @@ func newTestServerWithToken(t *testing.T, token string) *Server {
 	st := newAPITestStore(t)
 	kc := newTestKubeClient()
 	return NewServer(Deps{
-		Store:     st,
-		Kube:      kc,
-		Helm:      nil,
-		Rollouts:  rollout.NewManager(st, kc),
-		AuthToken: token,
-		StartedAt: "2024-01-01T00:00:00Z",
-		Version:   "test",
+		Store:        st,
+		Kube:         kc,
+		Helm:         nil,
+		ChartMonitor: chartmonitor.NewManager(st, nil),
+		Rollouts:     rollout.NewManager(st, kc),
+		AuthToken:    token,
+		StartedAt:    "2024-01-01T00:00:00Z",
+		Version:      "test",
 	})
 }
 

@@ -13,6 +13,8 @@ export async function fetchReleaseBundle(requestJson, requestText, release, name
 		release: summary.release,
 		namespace,
 		summary,
+		source: summary.source || null,
+		monitor: summary.monitor || null,
 		history: history.entries || [],
 		diff,
 		values: values.values_yaml || "",

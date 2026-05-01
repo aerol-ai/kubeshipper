@@ -24,10 +24,15 @@ func (s *Server) mountCharts(r chi.Router) {
 		g.Get("/jobs/{id}", s.getJob)
 		g.Get("/jobs/{id}/stream", s.streamJob)
 
+		g.Put("/{release}/source", s.saveChartSource)
 		g.Get("/{release}", s.getRelease)
 		g.Patch("/{release}", s.upgradeRelease)
 		g.Delete("/{release}", s.uninstallRelease)
 		g.Post("/{release}/rollback", s.rollbackRelease)
+		g.Post("/{release}/monitor/check", s.checkChartMonitor)
+		g.Post("/{release}/monitor/sync", s.syncChartMonitor)
+		g.Post("/{release}/monitor/enable", s.enableChartMonitor)
+		g.Post("/{release}/monitor/disable", s.disableChartMonitor)
 		g.Get("/{release}/history", s.releaseHistory)
 		g.Get("/{release}/diff", s.releaseDiff)
 		g.Get("/{release}/values", s.releaseValues)
@@ -90,6 +95,9 @@ func (s *Server) installChart(w http.ResponseWriter, r *http.Request) {
 	go s.runJob(jobID, "install", func(ctx context.Context, emit helm.EmitFn) error {
 		if err := s.deps.Helm.Install(ctx, &req, emit); err != nil {
 			return err
+		}
+		if _, err := s.persistChartReleaseSource(req.Release, req.Namespace, req.Source); err != nil {
+			return fmt.Errorf("helm operation succeeded but chart source persistence failed: %w", err)
 		}
 		return s.registerChartRolloutWatch(ctx, emit, req.Namespace, req.RolloutWatch)
 	})
@@ -176,6 +184,10 @@ func (s *Server) getRelease(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 404, map[string]string{"error": err.Error()})
 		return
 	}
+	if err := s.hydrateChartReleaseResponse(out, release, ns); err != nil {
+		writeJSON(w, 500, map[string]string{"error": err.Error()})
+		return
+	}
 	writeJSON(w, 200, out)
 }
 
@@ -231,6 +243,9 @@ func (s *Server) upgradeRelease(w http.ResponseWriter, r *http.Request) {
 		if err := s.deps.Helm.Upgrade(ctx, release, ns, &req, emit); err != nil {
 			return err
 		}
+		if _, err := s.persistChartReleaseSource(release, ns, req.Source); err != nil {
+			return fmt.Errorf("helm operation succeeded but chart source persistence failed: %w", err)
+		}
 		return s.registerChartRolloutWatch(ctx, emit, ns, req.RolloutWatch)
 	})
 	writeJSON(w, 202, map[string]string{
@@ -256,6 +271,7 @@ func (s *Server) uninstallRelease(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": err.Error()})
 		return
 	}
+	_ = s.deps.Store.DeleteChartReleaseConfig(release, ns)
 	_ = s.deps.Store.AuditLog(initiator(r), "uninstall", release, ns, "accepted", nil)
 	writeJSON(w, 200, out)
 }
@@ -277,6 +293,7 @@ func (s *Server) rollbackRelease(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": err.Error()})
 		return
 	}
+	_ = s.syncStoredChartReleaseVersion(r.Context(), release, ns)
 	_ = s.deps.Store.AuditLog(initiator(r), "rollback", release, ns, "accepted", req)
 	writeJSON(w, 200, map[string]any{"ok": true, "new_revision": rev})
 }

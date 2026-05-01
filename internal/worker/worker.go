@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/aerol-ai/kubeshipper/internal/chartmonitor"
 	"github.com/aerol-ai/kubeshipper/internal/kube"
 	"github.com/aerol-ai/kubeshipper/internal/rollout"
 	"github.com/aerol-ai/kubeshipper/internal/store"
@@ -24,13 +25,14 @@ import (
 // pubsub on every state transition. Drift-triggered re-pends have no JobID
 // and produce no events — they're internal reconciliation, not user-driven.
 type Worker struct {
-	store    *store.Store
-	kube     *kube.Client
-	rollouts *rollout.Manager
+	store        *store.Store
+	kube         *kube.Client
+	rollouts     *rollout.Manager
+	chartMonitor *chartmonitor.Manager
 }
 
-func New(s *store.Store, kc *kube.Client, rollouts *rollout.Manager) *Worker {
-	return &Worker{store: s, kube: kc, rollouts: rollouts}
+func New(s *store.Store, kc *kube.Client, rollouts *rollout.Manager, chartMonitor *chartmonitor.Manager) *Worker {
+	return &Worker{store: s, kube: kc, rollouts: rollouts, chartMonitor: chartMonitor}
 }
 
 func (w *Worker) Run(ctx context.Context) {
@@ -56,6 +58,9 @@ func (w *Worker) Run(ctx context.Context) {
 			w.reconcileDrift(ctx)
 			if w.rollouts != nil {
 				w.rollouts.SyncAll(ctx)
+			}
+			if w.chartMonitor != nil {
+				w.chartMonitor.SyncAll(ctx)
 			}
 		}
 	}

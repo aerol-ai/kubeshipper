@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aerol-ai/kubeshipper/internal/chartmonitor"
 	"github.com/aerol-ai/kubeshipper/internal/helm"
 	"github.com/aerol-ai/kubeshipper/internal/kube"
 	"github.com/aerol-ai/kubeshipper/internal/rollout"
@@ -16,13 +17,14 @@ import (
 )
 
 type Deps struct {
-	Store     *store.Store
-	Kube      *kube.Client
-	Helm      *helm.Manager
-	Rollouts  *rollout.Manager
-	AuthToken string
-	StartedAt string
-	Version   string
+	Store        *store.Store
+	Kube         *kube.Client
+	Helm         *helm.Manager
+	ChartMonitor *chartmonitor.Manager
+	Rollouts     *rollout.Manager
+	AuthToken    string
+	StartedAt    string
+	Version      string
 }
 
 type Server struct {

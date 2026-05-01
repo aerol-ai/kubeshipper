@@ -12,9 +12,7 @@ export function DashboardShell(props) {
 		<div className="shell">
 			<aside className="shell-sidebar">
 				<div className="brand-mark">
-					<span className="eyebrow">Argocd-grade basics</span>
 					<h1 className="brand-title">KubeShipper</h1>
-					<p className="brand-subtitle">React control deck running on the same binary that ships the cluster changes.</p>
 				</div>
 				<nav className="nav-list">
 					{NAV_ITEMS.map((item) => (
@@ -44,12 +42,10 @@ export function DashboardShell(props) {
 			<main className="shell-main">
 				<header className="topbar">
 					<div>
-						<span className="eyebrow">Operational surface</span>
 						<h2 className="page-title">{meta.title}</h2>
 						<p className="page-subtitle">{meta.subtitle}</p>
 					</div>
 					<div className="topbar-meta">
-						<span className="state-pill success">Root app / API on /api</span>
 						<button className="subtle-button" type="button" onClick={props.refreshSession}>
 							Refresh session
 						</button>
