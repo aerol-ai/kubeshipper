@@ -72,6 +72,9 @@ only use `/services`, leave `helmAdmin` off — the default RBAC is fine.
   "wait": true,
   "timeoutSeconds": 600,
   "createNamespace": true,
+  "rolloutWatch": {
+    "deployment": "agent-gateway"
+  },
   "prerequisites": {
     "secrets": [
       {
@@ -101,6 +104,22 @@ request body after redacting `password`, `token`, `sshKeyPem`, `tgzBase64`,
 `prerequisites.secrets[]` are provisioned (idempotently) before the chart is
 installed — useful for things like `cloudflare-api-token-secret` that the
 chart's ClusterIssuer references but does not create itself.
+
+`rolloutWatch` is optional. When provided, KubeShipper will register or refresh
+the rollout watch immediately after a successful install or upgrade, so the
+same request both deploys the chart and wires the 60-second digest watcher.
+
+Fields:
+
+| Field | Required | Notes |
+|---|---|---|
+| `deployment` | one of `deployment` / `service` | Deployment name to watch |
+| `service` | one of `deployment` / `service` | Alias for callers that think in service names |
+| `container` | no | Required only when the Deployment has multiple containers |
+
+The `PATCH /charts/:release` upgrade request accepts the same `rolloutWatch`
+block, letting each chart upgrade refresh the watch registration without a
+separate `/rollout-watches` call.
 
 ## Response (202 Accepted)
 

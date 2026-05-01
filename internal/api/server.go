@@ -6,6 +6,7 @@ import (
 
 	"github.com/aerol-ai/kubeshipper/internal/helm"
 	"github.com/aerol-ai/kubeshipper/internal/kube"
+	"github.com/aerol-ai/kubeshipper/internal/rollout"
 	"github.com/aerol-ai/kubeshipper/internal/store"
 
 	"github.com/go-chi/chi/v5"
@@ -16,6 +17,7 @@ type Deps struct {
 	Store     *store.Store
 	Kube      *kube.Client
 	Helm      *helm.Manager
+	Rollouts  *rollout.Manager
 	AuthToken string
 	StartedAt string
 	Version   string
@@ -40,7 +42,11 @@ func (s *Server) Handler() http.Handler {
 		writeJSON(w, 200, map[string]any{
 			"name":        "kubeshipper",
 			"description": "Kubernetes deployment + Helm chart API (Go)",
-			"docs":        map[string]string{"services": "/services", "charts": "/charts"},
+			"docs": map[string]string{
+				"services":        "/services",
+				"charts":          "/charts",
+				"rollout_watches": "/rollout-watches",
+			},
 		})
 	})
 
@@ -57,6 +63,7 @@ func (s *Server) Handler() http.Handler {
 		g.Use(s.authMiddleware)
 		s.mountServices(g)
 		s.mountCharts(g)
+		s.mountRolloutWatches(g)
 	})
 
 	return r

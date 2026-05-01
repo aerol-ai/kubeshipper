@@ -73,6 +73,11 @@ func (s *Server) installChart(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": err.Error()})
 		return
 	}
+	if req.RolloutWatch != nil && s.deps.Rollouts == nil {
+		_ = s.deps.Store.AuditLog(initiator(r), "install", req.Release, req.Namespace, "rejected", req)
+		writeJSON(w, 503, map[string]string{"error": "rollout watch manager is unavailable"})
+		return
+	}
 
 	jobID, err := s.deps.Store.CreateJob(req.Release, req.Namespace, "install", initiator(r))
 	if err != nil {
@@ -82,7 +87,10 @@ func (s *Server) installChart(w http.ResponseWriter, r *http.Request) {
 	_ = s.deps.Store.AuditLog(initiator(r), "install", req.Release, req.Namespace, "accepted", req)
 
 	go s.runJob(jobID, "install", func(ctx context.Context, emit helm.EmitFn) error {
-		return s.deps.Helm.Install(ctx, &req, emit)
+		if err := s.deps.Helm.Install(ctx, &req, emit); err != nil {
+			return err
+		}
+		return s.registerChartRolloutWatch(ctx, emit, req.Namespace, req.RolloutWatch)
 	})
 
 	writeJSON(w, 202, map[string]string{
@@ -121,7 +129,7 @@ func validateInstall(req *helm.InstallReq) error {
 	default:
 		return fmt.Errorf("unknown source type %q", req.Source.Type)
 	}
-	return nil
+	return validateRolloutWatch(req.RolloutWatch)
 }
 
 // --- /charts (list) ---
@@ -186,6 +194,14 @@ func (s *Server) upgradeRelease(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "source required"})
 		return
 	}
+	if err := validateRolloutWatch(req.RolloutWatch); err != nil {
+		writeJSON(w, 400, map[string]string{"error": err.Error()})
+		return
+	}
+	if req.RolloutWatch != nil && s.deps.Rollouts == nil {
+		writeJSON(w, 503, map[string]string{"error": "rollout watch manager is unavailable"})
+		return
+	}
 
 	// Drift gate: try a diff and auto-resync once.
 	if diff, err := s.deps.Helm.Diff(r.Context(), release, ns); err == nil && diff.Drifted {
@@ -211,7 +227,10 @@ func (s *Server) upgradeRelease(w http.ResponseWriter, r *http.Request) {
 	_ = s.deps.Store.AuditLog(initiator(r), "upgrade", release, ns, "accepted", req)
 
 	go s.runJob(jobID, "upgrade", func(ctx context.Context, emit helm.EmitFn) error {
-		return s.deps.Helm.Upgrade(ctx, release, ns, &req, emit)
+		if err := s.deps.Helm.Upgrade(ctx, release, ns, &req, emit); err != nil {
+			return err
+		}
+		return s.registerChartRolloutWatch(ctx, emit, ns, req.RolloutWatch)
 	})
 	writeJSON(w, 202, map[string]string{
 		"jobId":  jobID,

@@ -11,6 +11,7 @@ import (
 
 	helmtypes "github.com/aerol-ai/kubeshipper/internal/helm"
 	"github.com/aerol-ai/kubeshipper/internal/kube"
+	"github.com/aerol-ai/kubeshipper/internal/rollout"
 	"github.com/aerol-ai/kubeshipper/internal/store"
 	kubefake "k8s.io/client-go/kubernetes/fake"
 )
@@ -47,10 +48,13 @@ func newTestKubeClient() *kube.Client {
 // deps.Helm is nil — only use for endpoints that return before calling Helm.
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
+	st := newAPITestStore(t)
+	kc := newTestKubeClient()
 	return NewServer(Deps{
-		Store:     newAPITestStore(t),
-		Kube:      newTestKubeClient(),
+		Store:     st,
+		Kube:      kc,
 		Helm:      nil,
+		Rollouts:  rollout.NewManager(st, kc),
 		AuthToken: "",
 		StartedAt: "2024-01-01T00:00:00Z",
 		Version:   "test",
@@ -60,10 +64,13 @@ func newTestServer(t *testing.T) *Server {
 // newTestServerWithToken returns a Server that requires a bearer token.
 func newTestServerWithToken(t *testing.T, token string) *Server {
 	t.Helper()
+	st := newAPITestStore(t)
+	kc := newTestKubeClient()
 	return NewServer(Deps{
-		Store:     newAPITestStore(t),
-		Kube:      newTestKubeClient(),
+		Store:     st,
+		Kube:      kc,
 		Helm:      nil,
+		Rollouts:  rollout.NewManager(st, kc),
 		AuthToken: token,
 		StartedAt: "2024-01-01T00:00:00Z",
 		Version:   "test",
@@ -335,6 +342,33 @@ func TestValidateInstall_UnknownSourceType(t *testing.T) {
 	}
 	if err := validateInstall(req); err == nil {
 		t.Fatal("expected error for unknown source type")
+	}
+}
+
+func TestValidateInstall_RolloutWatchMissingTarget(t *testing.T) {
+	req := &helmtypes.InstallReq{
+		Release:      "myapp",
+		Namespace:    "default",
+		Source:       &helmtypes.ChartSource{Type: "oci", URL: "oci://r/c", Version: "1.0.0"},
+		RolloutWatch: &helmtypes.RolloutWatchConfig{},
+	}
+	if err := validateInstall(req); err == nil {
+		t.Fatal("expected error for rollout watch without target")
+	}
+}
+
+func TestValidateInstall_RolloutWatchAliasConflict(t *testing.T) {
+	req := &helmtypes.InstallReq{
+		Release:   "myapp",
+		Namespace: "default",
+		Source:    &helmtypes.ChartSource{Type: "oci", URL: "oci://r/c", Version: "1.0.0"},
+		RolloutWatch: &helmtypes.RolloutWatchConfig{
+			Deployment: "agent-gateway",
+			Service:    "agent-service",
+		},
+	}
+	if err := validateInstall(req); err == nil {
+		t.Fatal("expected error for rollout watch alias conflict")
 	}
 }
 
@@ -696,6 +730,21 @@ func TestHandlerInstallChart_MissingNamespace(t *testing.T) {
 	}
 }
 
+func TestHandlerInstallChart_RolloutWatchMissingTarget(t *testing.T) {
+	body := helmtypes.InstallReq{
+		Release:      "myapp",
+		Namespace:    "default",
+		Source:       &helmtypes.ChartSource{Type: "oci", URL: "oci://example/chart", Version: "1.0.0"},
+		RolloutWatch: &helmtypes.RolloutWatchConfig{},
+	}
+	b, _ := json.Marshal(body)
+	srv := newTestServer(t)
+	rec := do(srv, "POST", "/charts", b)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("want 400 for missing rollout watch target, got %d", rec.Code)
+	}
+}
+
 // --- Upgrade variants ---
 
 func TestHandlerUpgradeRelease_MissingNamespace(t *testing.T) {
@@ -717,6 +766,19 @@ func TestHandlerUpgradeRelease_MissingSource(t *testing.T) {
 	rec := do(srv, "PATCH", "/charts/myrelease?namespace=default", b)
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("want 400 for missing source, got %d", rec.Code)
+	}
+}
+
+func TestHandlerUpgradeRelease_RolloutWatchMissingTarget(t *testing.T) {
+	srv := newTestServer(t)
+	body := helmtypes.UpgradeReq{
+		Source:       &helmtypes.ChartSource{Type: "oci", URL: "oci://example/chart", Version: "1.0.0"},
+		RolloutWatch: &helmtypes.RolloutWatchConfig{},
+	}
+	b, _ := json.Marshal(body)
+	rec := do(srv, "PATCH", "/charts/myrelease?namespace=default", b)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("want 400 for missing rollout watch target, got %d", rec.Code)
 	}
 }
 

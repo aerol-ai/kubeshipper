@@ -4,6 +4,7 @@ A lightweight HTTP API service that manages Kubernetes workloads. Two APIs:
 
 - **`/services`** — send a JSON spec, KubeShipper produces Deployment + Service + Ingress and applies via server-side apply.
 - **`/charts`** — drive the Helm v3 SDK over HTTP: install / upgrade / uninstall / rollback / disable individual chart resources, with SSE progress streaming.
+- **`/rollout-watches`** — register existing Deployments for automatic image-digest checks every minute and patch them when the remote digest changes.
 
 Single Go binary, single SQLite file for local state, no sidecars.
 
@@ -58,6 +59,53 @@ streaming is the only path.
 
 `/charts` supports four chart sources: OCI registries (incl. private GHCR), classic HTTPS Helm repos, git URLs, and uploaded `.tgz`. Credentials are supplied per-request and never persisted. See `docs/charts-api.md` for full payload examples.
 
+When a chart install or upgrade should also configure automatic digest-based restarts, include an optional `rolloutWatch` block in the same request body:
+
+```json
+{
+  "release": "auto-coder",
+  "namespace": "auto-coder",
+  "source": {
+    "type": "oci",
+    "url": "oci://ghcr.io/acme/auto-coder",
+    "version": "1.2.3"
+  },
+  "rolloutWatch": {
+    "deployment": "agent-gateway"
+  }
+}
+```
+
+`rolloutWatch.service` is accepted as an alias for `rolloutWatch.deployment`, and `rolloutWatch.container` lets you target one container in a multi-container Deployment.
+
+### `/rollout-watches` — automatic digest-based deployment refresh
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/rollout-watches` | Register or refresh a watched Deployment |
+| `GET` | `/rollout-watches` | List watched Deployments + latest sync state |
+| `GET` | `/rollout-watches/:id` | Read one watch, including its timeline |
+| `POST` | `/rollout-watches/:id/sync` | Trigger an immediate digest check |
+| `DELETE` | `/rollout-watches/:id` | Remove a watch |
+
+Behavior:
+
+- The worker checks every registered Deployment once per minute inside the KubeShipper pod.
+- The watch tracks the Deployment image reference, resolves the latest remote digest, and compares it to the currently running digest.
+- Mutable tags like `:latest` are handled by digest, not tag text. When a new digest is published, KubeShipper patches the Deployment image to `image:tag@sha256:...` so Kubernetes performs a rollout.
+- Registry auth is resolved from the Deployment's `imagePullSecrets` and its ServiceAccount `imagePullSecrets`, so private registries work without storing registry credentials in KubeShipper.
+
+Example registration:
+
+```json
+{
+  "namespace": "auto-coder",
+  "deployment": "agent-gateway"
+}
+```
+
+`service` is accepted as an alias for `deployment` to support callers that think in service names rather than Deployment names.
+
 ### Always-public
 
 | Method | Path | Description |
@@ -86,7 +134,7 @@ streaming is the only path.
 
 ### Authentication
 
-When `AUTH_TOKEN` is set, all `/services` and `/charts` endpoints require:
+When `AUTH_TOKEN` is set, all `/services`, `/charts`, and `/rollout-watches` endpoints require:
 
 ```
 Authorization: Bearer <your-token>
