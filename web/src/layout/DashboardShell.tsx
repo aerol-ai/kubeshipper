@@ -1,13 +1,8 @@
 import React from "react";
-import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 
 import { classNames } from "../lib/format";
 import { NAV_ITEMS, PAGE_META } from "../constants";
-import { AutomationsPage } from "../pages/AutomationsPage";
-import { HelmPage } from "../pages/HelmPage";
-import { OverviewPage } from "../pages/OverviewPage";
-import { ReleasesPage } from "../pages/ReleasesPage";
-import { ServicesPage } from "../pages/ServicesPage";
 
 export function DashboardShell(props) {
 	const location = useLocation();
@@ -60,14 +55,7 @@ export function DashboardShell(props) {
 						</button>
 					</div>
 				</header>
-				<Routes>
-					<Route path="/" element={<OverviewPage {...props} />} />
-					<Route path="/helm" element={<HelmPage {...props} />} />
-					<Route path="/releases" element={<ReleasesPage {...props} />} />
-					<Route path="/services" element={<ServicesPage {...props} />} />
-					<Route path="/automations" element={<AutomationsPage {...props} />} />
-					<Route path="*" element={<Navigate replace to="/" />} />
-				</Routes>
+				<Outlet />
 			</main>
 			<aside className="shell-console">
 				<div className="console-header">

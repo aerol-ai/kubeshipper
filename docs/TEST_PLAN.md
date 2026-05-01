@@ -158,20 +158,20 @@ exercised.
 
 | # | Test | Expectation |
 |---|------|-------------|
-| 82 | `TestHandlerCreateService_InvalidJSON` | `POST /services` bad body → 400 |
+| 82 | `TestHandlerCreateService_InvalidJSON` | `POST /api/services` bad body → 400 |
 | 83 | `TestHandlerCreateService_InvalidNamespace` | Unmanaged namespace → 400 |
 | 84 | `TestHandlerCreateService_MissingImage` | No image field → 400 |
 | 85 | `TestHandlerCreateService_Valid` | Valid spec → 202 with jobId |
-| 86 | `TestHandlerGetService_NotFound` | `GET /services/nonexistent` → 404 |
+| 86 | `TestHandlerGetService_NotFound` | `GET /api/services/nonexistent` → 404 |
 | 87 | `TestHandlerGetService_Found` | Create then GET → 200 |
 
 ### Chart handler validation (3; helm manager is nil)
 
 | # | Test | Expectation |
 |---|------|-------------|
-| 88 | `TestHandlerInstallChart_MissingRelease` | `POST /charts` no release → 400 |
-| 89 | `TestHandlerGetRelease_MissingNamespace` | `GET /charts/{r}` no namespace → 400 |
-| 90 | `TestHandlerUninstallRelease_MissingForce` | `DELETE /charts/{r}?namespace=default` no `force=true` → 400 |
+| 88 | `TestHandlerInstallChart_MissingRelease` | `POST /api/charts` no release → 400 |
+| 89 | `TestHandlerGetRelease_MissingNamespace` | `GET /api/charts/{r}` no namespace → 400 |
+| 90 | `TestHandlerUninstallRelease_MissingForce` | `DELETE /api/charts/{r}?namespace=default` no `force=true` → 400 |
 
 ---
 

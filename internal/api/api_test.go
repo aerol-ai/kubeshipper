@@ -85,7 +85,7 @@ func do(srv *Server, method, target string, body []byte) *httptest.ResponseRecor
 	} else {
 		bodyReader = bytes.NewReader(nil)
 	}
-	req := httptest.NewRequest(method, target, bodyReader)
+	req := httptest.NewRequest(method, apiTarget(target), bodyReader)
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
 	return rec
@@ -99,11 +99,21 @@ func doWithToken(srv *Server, method, target, token string, body []byte) *httpte
 	} else {
 		bodyReader = bytes.NewReader(nil)
 	}
-	req := httptest.NewRequest(method, target, bodyReader)
+	req := httptest.NewRequest(method, apiTarget(target), bodyReader)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
 	return rec
+}
+
+func apiTarget(target string) string {
+	if target == "/" || target == "/health" || target == "/api" || target == "/api/" || strings.HasPrefix(target, "/api/") {
+		return target
+	}
+	if strings.HasPrefix(target, "/") {
+		return "/api" + target
+	}
+	return "/api/" + target
 }
 
 // --- Auth middleware tests (56–60) ---
@@ -129,7 +139,7 @@ func TestAuthMiddleware_MissingHeader(t *testing.T) {
 // Test 58
 func TestAuthMiddleware_NoBearer(t *testing.T) {
 	srv := newTestServerWithToken(t, "secret123")
-	req := httptest.NewRequest("GET", "/services", nil)
+	req := httptest.NewRequest("GET", apiTarget("/services"), nil)
 	req.Header.Set("Authorization", "Token secret123") // wrong scheme
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
@@ -595,7 +605,7 @@ func TestHandlerListServices_Empty(t *testing.T) {
 func TestHandlerListServices_AfterCreate(t *testing.T) {
 	srv := newTestServer(t)
 	body := bytes.NewReader([]byte(`{"name":"myapp","image":"nginx"}`))
-	req := httptest.NewRequest("POST", "/services", body)
+	req := httptest.NewRequest("POST", apiTarget("/services"), body)
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
 

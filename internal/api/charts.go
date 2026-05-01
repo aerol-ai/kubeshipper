@@ -98,7 +98,7 @@ func (s *Server) installChart(w http.ResponseWriter, r *http.Request) {
 		"jobId":     jobID,
 		"release":   req.Release,
 		"namespace": req.Namespace,
-		"stream":    "/charts/jobs/" + jobID + "/stream",
+		"stream":    "/api/charts/jobs/" + jobID + "/stream",
 		"status":    "pending",
 	})
 }
@@ -235,7 +235,7 @@ func (s *Server) upgradeRelease(w http.ResponseWriter, r *http.Request) {
 	})
 	writeJSON(w, 202, map[string]string{
 		"jobId":  jobID,
-		"stream": "/charts/jobs/" + jobID + "/stream",
+		"stream": "/api/charts/jobs/" + jobID + "/stream",
 		"status": "pending",
 	})
 }
@@ -375,7 +375,7 @@ func (s *Server) disableResource(w http.ResponseWriter, r *http.Request) {
 		return s.deps.Helm.DisableResource(ctx, release, ns, kind, name, req.ResourceNamespace,
 			req.Source, req.Values, req.DeletePvcs, req.TimeoutSeconds, emit)
 	})
-	writeJSON(w, 202, map[string]string{"jobId": jobID, "stream": "/charts/jobs/" + jobID + "/stream", "status": "pending"})
+	writeJSON(w, 202, map[string]string{"jobId": jobID, "stream": "/api/charts/jobs/" + jobID + "/stream", "status": "pending"})
 }
 
 func (s *Server) enableResource(w http.ResponseWriter, r *http.Request) {
@@ -402,7 +402,7 @@ func (s *Server) enableResource(w http.ResponseWriter, r *http.Request) {
 		return s.deps.Helm.EnableResource(ctx, release, ns, kind, name, req.ResourceNamespace,
 			req.Source, req.Values, req.TimeoutSeconds, emit)
 	})
-	writeJSON(w, 202, map[string]string{"jobId": jobID, "stream": "/charts/jobs/" + jobID + "/stream", "status": "pending"})
+	writeJSON(w, 202, map[string]string{"jobId": jobID, "stream": "/api/charts/jobs/" + jobID + "/stream", "status": "pending"})
 }
 
 // --- jobs ---

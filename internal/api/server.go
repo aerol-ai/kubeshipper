@@ -77,24 +77,12 @@ func (s *Server) Handler() http.Handler {
 		})
 	})
 
-	// Legacy top-level API routes remain mounted for backward compatibility.
-	r.Group(func(g chi.Router) {
-		g.Use(s.authMiddleware)
-		s.mountServices(g)
-		s.mountCharts(g)
-		s.mountRolloutWatches(g)
-	})
-
 	uiHandler := ui.Handler()
 	r.Get("/", uiHandler.ServeHTTP)
-	r.Get("/app.js", uiHandler.ServeHTTP)
-	r.Get("/app.css", uiHandler.ServeHTTP)
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
-		for _, prefix := range []string{"/api/", "/services", "/charts", "/rollout-watches", "/health"} {
-			if strings.HasPrefix(r.URL.Path, prefix) {
-				http.NotFound(w, r)
-				return
-			}
+		if r.URL.Path == "/api" || strings.HasPrefix(r.URL.Path, "/api/") {
+			http.NotFound(w, r)
+			return
 		}
 		uiHandler.ServeHTTP(w, r)
 	})

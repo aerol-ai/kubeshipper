@@ -1,26 +1,26 @@
 import React, { useEffect, useRef, useState } from "react";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter } from "react-router-dom";
 
 import { Banner } from "./components/Banner";
 import { LoadingScreen } from "./components/LoadingScreen";
 import { useConsoleState } from "./hooks/useConsoleState";
 import { requestJson, requestText, isAuthError } from "./lib/api";
 import { decodeError } from "./lib/format";
-import { DashboardShell } from "./layout/DashboardShell";
-import { LoginPage } from "./pages/LoginPage";
+import { AppRouter } from "./router";
+import type { AuthSessionResponse, BannerState, SessionState } from "./types";
 
 export function App() {
-	const [session, setSession] = useState({
+	const [session, setSession] = useState<SessionState>({
 		loading: true,
 		authenticated: false,
 		mode: "jwt",
 		version: "",
 	});
-	const [banner, setBanner] = useState(null);
-	const bannerTimerRef = useRef(null);
+	const [banner, setBanner] = useState<BannerState | null>(null);
+	const bannerTimerRef = useRef<number | null>(null);
 	const stopActiveStreamRef = useRef(() => {});
 
-	const notify = (message, tone = "info") => {
+	const notify = (message: string, tone: BannerState["tone"] = "info") => {
 		if (bannerTimerRef.current) {
 			window.clearTimeout(bannerTimerRef.current);
 		}
@@ -44,7 +44,7 @@ export function App() {
 
 	const loadSession = async () => {
 		try {
-			const next = await requestJson("/auth/session", { method: "GET" });
+			const next = await requestJson<AuthSessionResponse>("/auth/session", { method: "GET" });
 			setSession({
 				loading: false,
 				authenticated: !!next.authenticated,
@@ -72,8 +72,8 @@ export function App() {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
-	const login = async (token) => {
-		const result = await requestJson("/auth/login", {
+	const login = async (token: string) => {
+		const result = await requestJson<AuthSessionResponse>("/auth/login", {
 			method: "POST",
 			body: JSON.stringify({ token }),
 		});
@@ -123,28 +123,7 @@ export function App() {
 	return (
 		<BrowserRouter>
 			{banner ? <Banner tone={banner.tone} message={banner.message} /> : null}
-			<Routes>
-				<Route
-					path="/login"
-					element={
-						session.authenticated || session.mode === "open" ? (
-							<Navigate replace to="/" />
-						) : (
-							<LoginPage login={login} version={session.version} />
-						)
-					}
-				/>
-				<Route
-					path="/*"
-					element={
-						session.authenticated || session.mode === "open" ? (
-							<DashboardShell {...pageProps} />
-						) : (
-							<Navigate replace to="/login" />
-						)
-					}
-				/>
-			</Routes>
+			<AppRouter session={session} login={login} pageProps={pageProps} />
 		</BrowserRouter>
 	);
 }

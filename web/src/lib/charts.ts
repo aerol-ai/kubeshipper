@@ -1,11 +1,13 @@
-export function buildChartSource(form) {
-	const auth = {};
+import type { ChartFormState, ChartSourcePayload, RolloutWatchPayload } from "../types";
+
+export function buildChartSource(form: ChartFormState): ChartSourcePayload {
+	const auth: NonNullable<ChartSourcePayload["auth"]> = {};
 	if (form.username.trim()) auth.username = form.username.trim();
 	if (form.password.trim()) auth.password = form.password.trim();
 	if (form.token.trim()) auth.token = form.token.trim();
 	if (form.sshKeyPem.trim()) auth.sshKeyPem = form.sshKeyPem.trim();
 
-	const source = { type: form.sourceType };
+	const source: ChartSourcePayload = { type: form.sourceType };
 	if (form.sourceType === "oci") {
 		source.url = form.url.trim();
 		source.version = form.version.trim();
@@ -28,8 +30,8 @@ export function buildChartSource(form) {
 	return source;
 }
 
-export function buildRolloutWatch(form) {
-	const payload = {};
+export function buildRolloutWatch(form: ChartFormState): RolloutWatchPayload | undefined {
+	const payload: RolloutWatchPayload = {};
 	if (form.rolloutDeployment.trim()) payload.deployment = form.rolloutDeployment.trim();
 	if (form.rolloutService.trim()) payload.service = form.rolloutService.trim();
 	if (form.rolloutContainer.trim()) payload.container = form.rolloutContainer.trim();

@@ -1,17 +1,20 @@
 const API_PREFIX = "/api";
 
-export function AuthError(message) {
-	const error = new Error(message);
+type AuthenticatedError = Error & { isAuth: true };
+type ApiErrorShape = { error?: string };
+
+export function AuthError(message: string): AuthenticatedError {
+	const error = new Error(message) as AuthenticatedError;
 	error.name = "AuthError";
 	error.isAuth = true;
 	return error;
 }
 
-export function isAuthError(error) {
-	return Boolean(error?.isAuth);
+export function isAuthError(error: unknown): error is AuthenticatedError {
+	return Boolean(typeof error === "object" && error && "isAuth" in error);
 }
 
-export function normalizeApiPath(input) {
+export function normalizeApiPath(input: string) {
 	if (!input) {
 		return API_PREFIX;
 	}
@@ -27,17 +30,17 @@ export function normalizeApiPath(input) {
 	return API_PREFIX + "/" + input;
 }
 
-export async function requestJson(path, options = {}) {
+export async function requestJson<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
 	const response = await fetch(normalizeApiPath(path), {
 		credentials: "same-origin",
 		headers: {
 			"Content-Type": "application/json",
-			...(options.headers || {}),
+			...((options.headers || {}) as HeadersInit),
 		},
 		...options,
 	});
 	const text = await response.text();
-	let data = text;
+	let data: unknown = text;
 	if (text) {
 		try {
 			data = JSON.parse(text);
@@ -45,16 +48,17 @@ export async function requestJson(path, options = {}) {
 			data = text;
 		}
 	}
+	const apiError = typeof data === "object" && data !== null ? (data as ApiErrorShape).error : undefined;
 	if (response.status === 401) {
-		throw AuthError(typeof data === "object" && data?.error ? data.error : "Unauthorized");
+		throw AuthError(apiError || "Unauthorized");
 	}
 	if (!response.ok) {
-		throw new Error(typeof data === "object" && data?.error ? data.error : text || `Request failed (${response.status})`);
+		throw new Error(apiError || text || `Request failed (${response.status})`);
 	}
-	return data;
+	return data as T;
 }
 
-export async function requestText(path, options = {}) {
+export async function requestText(path: string, options: RequestInit = {}): Promise<string> {
 	const response = await fetch(normalizeApiPath(path), {
 		credentials: "same-origin",
 		...options,
