@@ -84,6 +84,10 @@ func (s *Server) Handler() http.Handler {
 			http.NotFound(w, r)
 			return
 		}
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.NotFound(w, r)
+			return
+		}
 		uiHandler.ServeHTTP(w, r)
 	})
 

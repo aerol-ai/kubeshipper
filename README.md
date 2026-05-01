@@ -184,6 +184,12 @@ If you change the dashboard source in `web/`, rebuild the embedded assets with:
 cd web && bun install && bun run build
 ```
 
+For standalone frontend development, run Vite in `web/` and keep the Go API on port `3000`. The Vite dev server proxies `/api/*` back to the Go backend, so frontend routes stay on the UI side while backend routes remain under `/api/*`.
+
+```bash
+cd web && bun install && bun run dev
+```
+
 Quick smoke test:
 
 ```bash
