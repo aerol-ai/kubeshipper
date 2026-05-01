@@ -59,6 +59,25 @@ streaming is the only path.
 
 `/charts` supports four chart sources: OCI registries (incl. private GHCR), classic HTTPS Helm repos, git URLs, and uploaded `.tgz`. Credentials are supplied per-request and never persisted. See `docs/charts-api.md` for full payload examples.
 
+When a chart install or upgrade should also configure automatic digest-based restarts, include an optional `rolloutWatch` block in the same request body:
+
+```json
+{
+  "release": "auto-coder",
+  "namespace": "auto-coder",
+  "source": {
+    "type": "oci",
+    "url": "oci://ghcr.io/acme/auto-coder",
+    "version": "1.2.3"
+  },
+  "rolloutWatch": {
+    "deployment": "agent-gateway"
+  }
+}
+```
+
+`rolloutWatch.service` is accepted as an alias for `rolloutWatch.deployment`, and `rolloutWatch.container` lets you target one container in a multi-container Deployment.
+
 ### `/rollout-watches` — automatic digest-based deployment refresh
 
 | Method | Path | Description |

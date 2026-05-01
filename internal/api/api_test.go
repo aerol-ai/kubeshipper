@@ -345,6 +345,33 @@ func TestValidateInstall_UnknownSourceType(t *testing.T) {
 	}
 }
 
+func TestValidateInstall_RolloutWatchMissingTarget(t *testing.T) {
+	req := &helmtypes.InstallReq{
+		Release:      "myapp",
+		Namespace:    "default",
+		Source:       &helmtypes.ChartSource{Type: "oci", URL: "oci://r/c", Version: "1.0.0"},
+		RolloutWatch: &helmtypes.RolloutWatchConfig{},
+	}
+	if err := validateInstall(req); err == nil {
+		t.Fatal("expected error for rollout watch without target")
+	}
+}
+
+func TestValidateInstall_RolloutWatchAliasConflict(t *testing.T) {
+	req := &helmtypes.InstallReq{
+		Release:   "myapp",
+		Namespace: "default",
+		Source:    &helmtypes.ChartSource{Type: "oci", URL: "oci://r/c", Version: "1.0.0"},
+		RolloutWatch: &helmtypes.RolloutWatchConfig{
+			Deployment: "agent-gateway",
+			Service:    "agent-service",
+		},
+	}
+	if err := validateInstall(req); err == nil {
+		t.Fatal("expected error for rollout watch alias conflict")
+	}
+}
+
 // --- Request helper tests (76–80) ---
 
 // Test 76
@@ -703,6 +730,21 @@ func TestHandlerInstallChart_MissingNamespace(t *testing.T) {
 	}
 }
 
+func TestHandlerInstallChart_RolloutWatchMissingTarget(t *testing.T) {
+	body := helmtypes.InstallReq{
+		Release:      "myapp",
+		Namespace:    "default",
+		Source:       &helmtypes.ChartSource{Type: "oci", URL: "oci://example/chart", Version: "1.0.0"},
+		RolloutWatch: &helmtypes.RolloutWatchConfig{},
+	}
+	b, _ := json.Marshal(body)
+	srv := newTestServer(t)
+	rec := do(srv, "POST", "/charts", b)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("want 400 for missing rollout watch target, got %d", rec.Code)
+	}
+}
+
 // --- Upgrade variants ---
 
 func TestHandlerUpgradeRelease_MissingNamespace(t *testing.T) {
@@ -724,6 +766,19 @@ func TestHandlerUpgradeRelease_MissingSource(t *testing.T) {
 	rec := do(srv, "PATCH", "/charts/myrelease?namespace=default", b)
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("want 400 for missing source, got %d", rec.Code)
+	}
+}
+
+func TestHandlerUpgradeRelease_RolloutWatchMissingTarget(t *testing.T) {
+	srv := newTestServer(t)
+	body := helmtypes.UpgradeReq{
+		Source:       &helmtypes.ChartSource{Type: "oci", URL: "oci://example/chart", Version: "1.0.0"},
+		RolloutWatch: &helmtypes.RolloutWatchConfig{},
+	}
+	b, _ := json.Marshal(body)
+	rec := do(srv, "PATCH", "/charts/myrelease?namespace=default", b)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("want 400 for missing rollout watch target, got %d", rec.Code)
 	}
 }
 

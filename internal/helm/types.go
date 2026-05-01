@@ -7,15 +7,15 @@ package helm
 import "encoding/json"
 
 type ChartSource struct {
-	Type    string          `json:"type"` // oci | https | git | tgz
-	URL     string          `json:"url,omitempty"`
-	RepoURL string          `json:"repoUrl,omitempty"`
-	Chart   string          `json:"chart,omitempty"`
-	Version string          `json:"version,omitempty"`
-	Ref     string          `json:"ref,omitempty"`
-	Path    string          `json:"path,omitempty"`
-	TgzB64  string          `json:"tgzBase64,omitempty"`
-	Auth    *Auth           `json:"auth,omitempty"`
+	Type    string `json:"type"` // oci | https | git | tgz
+	URL     string `json:"url,omitempty"`
+	RepoURL string `json:"repoUrl,omitempty"`
+	Chart   string `json:"chart,omitempty"`
+	Version string `json:"version,omitempty"`
+	Ref     string `json:"ref,omitempty"`
+	Path    string `json:"path,omitempty"`
+	TgzB64  string `json:"tgzBase64,omitempty"`
+	Auth    *Auth  `json:"auth,omitempty"`
 }
 
 type Auth struct {
@@ -32,28 +32,36 @@ type PrereqSecret struct {
 	StringData map[string]string `json:"stringData"`
 }
 
+type RolloutWatchConfig struct {
+	Deployment string `json:"deployment,omitempty"`
+	Service    string `json:"service,omitempty"`
+	Container  string `json:"container,omitempty"`
+}
+
 type InstallReq struct {
-	Release         string                 `json:"release"`
-	Namespace       string                 `json:"namespace"`
-	Source          *ChartSource           `json:"source"`
-	Values          map[string]any         `json:"values,omitempty"`
-	Atomic          *bool                  `json:"atomic,omitempty"`
-	Wait            *bool                  `json:"wait,omitempty"`
-	TimeoutSeconds  int                    `json:"timeoutSeconds,omitempty"`
-	CreateNamespace *bool                  `json:"createNamespace,omitempty"`
+	Release         string              `json:"release"`
+	Namespace       string              `json:"namespace"`
+	Source          *ChartSource        `json:"source"`
+	Values          map[string]any      `json:"values,omitempty"`
+	Atomic          *bool               `json:"atomic,omitempty"`
+	Wait            *bool               `json:"wait,omitempty"`
+	TimeoutSeconds  int                 `json:"timeoutSeconds,omitempty"`
+	CreateNamespace *bool               `json:"createNamespace,omitempty"`
+	RolloutWatch    *RolloutWatchConfig `json:"rolloutWatch,omitempty"`
 	Prerequisites   *struct {
 		Secrets []PrereqSecret `json:"secrets"`
 	} `json:"prerequisites,omitempty"`
 }
 
 type UpgradeReq struct {
-	Source         *ChartSource   `json:"source"`
-	Values         map[string]any `json:"values,omitempty"`
-	Atomic         *bool          `json:"atomic,omitempty"`
-	Wait           *bool          `json:"wait,omitempty"`
-	TimeoutSeconds int            `json:"timeoutSeconds,omitempty"`
-	ReuseValues    bool           `json:"reuseValues,omitempty"`
-	ResetValues    bool           `json:"resetValues,omitempty"`
+	Source         *ChartSource        `json:"source"`
+	Values         map[string]any      `json:"values,omitempty"`
+	Atomic         *bool               `json:"atomic,omitempty"`
+	Wait           *bool               `json:"wait,omitempty"`
+	TimeoutSeconds int                 `json:"timeoutSeconds,omitempty"`
+	ReuseValues    bool                `json:"reuseValues,omitempty"`
+	ResetValues    bool                `json:"resetValues,omitempty"`
+	RolloutWatch   *RolloutWatchConfig `json:"rolloutWatch,omitempty"`
 }
 
 type RollbackReq struct {
