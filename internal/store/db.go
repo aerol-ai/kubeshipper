@@ -76,6 +76,27 @@ func (s *Store) migrate() error {
 			payload_hash  TEXT,
 			outcome       TEXT
 		)`,
+		`CREATE TABLE IF NOT EXISTS rollout_watches (
+			id              TEXT PRIMARY KEY,
+			namespace       TEXT NOT NULL,
+			deployment      TEXT NOT NULL,
+			container       TEXT NOT NULL DEFAULT '',
+			tracked_image   TEXT NOT NULL,
+			current_image   TEXT NOT NULL DEFAULT '',
+			current_digest  TEXT NOT NULL DEFAULT '',
+			latest_image    TEXT NOT NULL DEFAULT '',
+			latest_digest   TEXT NOT NULL DEFAULT '',
+			last_result     TEXT NOT NULL DEFAULT '',
+			last_error      TEXT NOT NULL DEFAULT '',
+			check_count     INTEGER NOT NULL DEFAULT 0,
+			sync_count      INTEGER NOT NULL DEFAULT 0,
+			events_jsonl    TEXT NOT NULL DEFAULT '',
+			created_at      INTEGER NOT NULL,
+			updated_at      INTEGER NOT NULL,
+			last_checked_at INTEGER,
+			last_synced_at  INTEGER
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS rollout_watches_target_idx ON rollout_watches(namespace, deployment, container)`,
 	}
 	for _, q := range stmts {
 		if _, err := s.DB.Exec(q); err != nil {

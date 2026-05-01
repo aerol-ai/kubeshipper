@@ -11,6 +11,7 @@ import (
 
 	helmtypes "github.com/aerol-ai/kubeshipper/internal/helm"
 	"github.com/aerol-ai/kubeshipper/internal/kube"
+	"github.com/aerol-ai/kubeshipper/internal/rollout"
 	"github.com/aerol-ai/kubeshipper/internal/store"
 	kubefake "k8s.io/client-go/kubernetes/fake"
 )
@@ -47,10 +48,13 @@ func newTestKubeClient() *kube.Client {
 // deps.Helm is nil — only use for endpoints that return before calling Helm.
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
+	st := newAPITestStore(t)
+	kc := newTestKubeClient()
 	return NewServer(Deps{
-		Store:     newAPITestStore(t),
-		Kube:      newTestKubeClient(),
+		Store:     st,
+		Kube:      kc,
 		Helm:      nil,
+		Rollouts:  rollout.NewManager(st, kc),
 		AuthToken: "",
 		StartedAt: "2024-01-01T00:00:00Z",
 		Version:   "test",
@@ -60,10 +64,13 @@ func newTestServer(t *testing.T) *Server {
 // newTestServerWithToken returns a Server that requires a bearer token.
 func newTestServerWithToken(t *testing.T, token string) *Server {
 	t.Helper()
+	st := newAPITestStore(t)
+	kc := newTestKubeClient()
 	return NewServer(Deps{
-		Store:     newAPITestStore(t),
-		Kube:      newTestKubeClient(),
+		Store:     st,
+		Kube:      kc,
 		Helm:      nil,
+		Rollouts:  rollout.NewManager(st, kc),
 		AuthToken: token,
 		StartedAt: "2024-01-01T00:00:00Z",
 		Version:   "test",

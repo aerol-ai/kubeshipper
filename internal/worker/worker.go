@@ -7,14 +7,15 @@ import (
 	"time"
 
 	"github.com/aerol-ai/kubeshipper/internal/kube"
+	"github.com/aerol-ai/kubeshipper/internal/rollout"
 	"github.com/aerol-ai/kubeshipper/internal/store"
 )
 
 // Worker drives the lifecycle of `services` rows:
 //
-//   PENDING  ── deploy via SSA ──>  DEPLOYING
-//   DEPLOYING ── readiness OK ─>  READY
-//   DEPLOYING ── progress fail ─>  attempt rollback to last_ready_spec_json
+//	PENDING  ── deploy via SSA ──>  DEPLOYING
+//	DEPLOYING ── readiness OK ─>  READY
+//	DEPLOYING ── progress fail ─>  attempt rollback to last_ready_spec_json
 //
 // Plus a slower drift loop that re-pends services whose Deployment is missing.
 //
@@ -23,12 +24,13 @@ import (
 // pubsub on every state transition. Drift-triggered re-pends have no JobID
 // and produce no events — they're internal reconciliation, not user-driven.
 type Worker struct {
-	store *store.Store
-	kube  *kube.Client
+	store    *store.Store
+	kube     *kube.Client
+	rollouts *rollout.Manager
 }
 
-func New(s *store.Store, kc *kube.Client) *Worker {
-	return &Worker{store: s, kube: kc}
+func New(s *store.Store, kc *kube.Client, rollouts *rollout.Manager) *Worker {
+	return &Worker{store: s, kube: kc, rollouts: rollouts}
 }
 
 func (w *Worker) Run(ctx context.Context) {
@@ -52,6 +54,9 @@ func (w *Worker) Run(ctx context.Context) {
 			w.watchDeploying(ctx)
 		case <-driftTicker.C:
 			w.reconcileDrift(ctx)
+			if w.rollouts != nil {
+				w.rollouts.SyncAll(ctx)
+			}
 		}
 	}
 }
@@ -59,11 +64,11 @@ func (w *Worker) Run(ctx context.Context) {
 // emit publishes a typed Event to the job's SSE pubsub when one is attached.
 // Phase mapping:
 //
-//   "Deploying"|"AutoRollback"               → phase: "apply"
-//   "RolloutComplete"                        → phase: "done"   (terminal: succeeded)
-//   "DeployFailed"|"RollbackWarning"         → phase: "error"  (terminal: failed)
-//   "RolloutFailed"                          → phase: "wait"   (rollback may follow)
-//   "DriftDetected"                          → phase: "validation"
+//	"Deploying"|"AutoRollback"               → phase: "apply"
+//	"RolloutComplete"                        → phase: "done"   (terminal: succeeded)
+//	"DeployFailed"|"RollbackWarning"         → phase: "error"  (terminal: failed)
+//	"RolloutFailed"                          → phase: "wait"   (rollback may follow)
+//	"DriftDetected"                          → phase: "validation"
 //
 // Terminal phases flip the linked job's status (succeeded/failed) and detach
 // the job from the service, closing the SSE stream for live subscribers.

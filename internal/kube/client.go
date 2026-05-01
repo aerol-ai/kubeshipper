@@ -11,9 +11,10 @@ import (
 // Client bundles all kube clientsets the rest of the app needs.
 // Created once at startup; safe for concurrent use.
 type Client struct {
-	Cfg     *rest.Config
-	KC      kubernetes.Interface
-	Managed map[string]bool
+	Cfg           *rest.Config
+	KC            kubernetes.Interface
+	Managed       map[string]bool
+	ImageResolver RegistryResolver
 }
 
 func New(managed map[string]bool) (*Client, error) {
@@ -25,7 +26,7 @@ func New(managed map[string]bool) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("kube client: %w", err)
 	}
-	return &Client{Cfg: cfg, KC: kc, Managed: managed}, nil
+	return &Client{Cfg: cfg, KC: kc, Managed: managed, ImageResolver: defaultRegistryResolver{}}, nil
 }
 
 // ResolveNamespace defaults to the first allow-listed namespace if requested

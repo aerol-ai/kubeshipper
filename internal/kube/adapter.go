@@ -68,12 +68,43 @@ func (c *Client) RestartService(ctx context.Context, id, namespace string) error
 	return err
 }
 
+func (c *Client) UpdateDeploymentImage(ctx context.Context, id, namespace, container, image string) error {
+	ns, err := c.ResolveNamespace(namespace)
+	if err != nil {
+		return err
+	}
+	patchBody := map[string]any{
+		"spec": map[string]any{
+			"template": map[string]any{
+				"metadata": map[string]any{
+					"annotations": map[string]string{
+						"kubeshipper.io/autoRolloutAt":    time.Now().UTC().Format(time.RFC3339Nano),
+						"kubeshipper.io/autoRolloutImage": image,
+					},
+				},
+				"spec": map[string]any{
+					"containers": []map[string]string{{
+						"name":  container,
+						"image": image,
+					}},
+				},
+			},
+		},
+	}
+	patch, err := json.Marshal(patchBody)
+	if err != nil {
+		return err
+	}
+	_, err = c.KC.AppsV1().Deployments(ns).Patch(ctx, id, types.StrategicMergePatchType, patch, metav1.PatchOptions{})
+	return err
+}
+
 type ServiceLiveStatus struct {
-	Ready          bool                       `json:"ready"`
-	ReadyReplicas  int32                      `json:"readyReplicas"`
-	TotalReplicas  int32                      `json:"totalReplicas"`
-	Conditions     []appsv1.DeploymentCondition `json:"conditions,omitempty"`
-	Reason         string                     `json:"reason,omitempty"`
+	Ready         bool                         `json:"ready"`
+	ReadyReplicas int32                        `json:"readyReplicas"`
+	TotalReplicas int32                        `json:"totalReplicas"`
+	Conditions    []appsv1.DeploymentCondition `json:"conditions,omitempty"`
+	Reason        string                       `json:"reason,omitempty"`
 }
 
 func (c *Client) ServiceStatus(ctx context.Context, id, namespace string) (ServiceLiveStatus, error) {
@@ -159,7 +190,7 @@ func (c *Client) applyDeployment(ctx context.Context, spec *ServiceSpec, ns stri
 func (c *Client) applyService(ctx context.Context, spec *ServiceSpec, ns string) error {
 	port := int32(*spec.Port)
 	svc := corev1.Service{
-		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Service"},
+		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Service"},
 		ObjectMeta: metav1.ObjectMeta{Name: spec.Name, Namespace: ns,
 			Labels: map[string]string{"app": spec.Name, "app.kubernetes.io/managed-by": "kubeshipper"}},
 		Spec: corev1.ServiceSpec{
@@ -199,7 +230,7 @@ func (c *Client) applyIngress(ctx context.Context, spec *ServiceSpec, ns string)
 	}
 
 	ing := netv1.Ingress{
-		TypeMeta:   metav1.TypeMeta{APIVersion: "networking.k8s.io/v1", Kind: "Ingress"},
+		TypeMeta: metav1.TypeMeta{APIVersion: "networking.k8s.io/v1", Kind: "Ingress"},
 		ObjectMeta: metav1.ObjectMeta{Name: spec.Name, Namespace: ns,
 			Labels: map[string]string{"app": spec.Name, "app.kubernetes.io/managed-by": "kubeshipper"}},
 		Spec: netv1.IngressSpec{Rules: []netv1.IngressRule{rule}},
