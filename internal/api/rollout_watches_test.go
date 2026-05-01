@@ -34,6 +34,56 @@ type rolloutSyncResp struct {
 	} `json:"watch"`
 }
 
+type rolloutTargetsResp struct {
+	Namespaces []string `json:"namespaces"`
+	Targets    []struct {
+		Namespace  string `json:"namespace"`
+		Deployment string `json:"deployment"`
+		Service    string `json:"service"`
+		Containers []struct {
+			Name         string `json:"name"`
+			Image        string `json:"image"`
+			TrackedImage string `json:"tracked_image"`
+		} `json:"containers"`
+	} `json:"targets"`
+}
+
+func TestListRolloutWatchTargets(t *testing.T) {
+	srv := newTestServer(t)
+	seedDeployment(t, srv, "agent-gateway", []corev1.Container{
+		{Name: "app", Image: "ghcr.io/acme/agent:latest"},
+		{Name: "sidecar", Image: "busybox:latest"},
+	}, true, "")
+
+	rec := do(srv, "GET", "/rollout-watches/targets", nil)
+	if rec.Code != 200 {
+		t.Fatalf("want 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var body rolloutTargetsResp
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(body.Namespaces) != 1 || body.Namespaces[0] != "default" {
+		t.Fatalf("namespaces: got %#v", body.Namespaces)
+	}
+	if len(body.Targets) != 1 {
+		t.Fatalf("targets length: got %d", len(body.Targets))
+	}
+	if body.Targets[0].Deployment != "agent-gateway" {
+		t.Fatalf("deployment: got %q", body.Targets[0].Deployment)
+	}
+	if body.Targets[0].Service != "agent-gateway" {
+		t.Fatalf("service: got %q", body.Targets[0].Service)
+	}
+	if len(body.Targets[0].Containers) != 2 {
+		t.Fatalf("containers length: got %d", len(body.Targets[0].Containers))
+	}
+	if body.Targets[0].Containers[0].TrackedImage == "" {
+		t.Fatal("expected tracked image for first container")
+	}
+}
+
 func TestRegisterRolloutWatch_Valid(t *testing.T) {
 	srv := newTestServer(t)
 	seedDeployment(t, srv, "agent-gateway", []corev1.Container{{Name: "app", Image: "ghcr.io/acme/agent:latest"}}, true, "")

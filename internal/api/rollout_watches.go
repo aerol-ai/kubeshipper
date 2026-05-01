@@ -14,6 +14,7 @@ func (s *Server) mountRolloutWatches(r chi.Router) {
 	r.Route("/rollout-watches", func(g chi.Router) {
 		g.Post("/", s.registerRolloutWatch)
 		g.Get("/", s.listRolloutWatches)
+		g.Get("/targets", s.listRolloutWatchTargets)
 		g.Get("/{id}", s.getRolloutWatch)
 		g.Post("/{id}/enable", s.enableRolloutWatch)
 		g.Post("/{id}/disable", s.disableRolloutWatch)
@@ -53,6 +54,21 @@ func (s *Server) listRolloutWatches(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"watches": watches})
+}
+
+func (s *Server) listRolloutWatchTargets(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Rollouts == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "rollout watch manager is unavailable"})
+		return
+	}
+	namespace := strings.TrimSpace(r.URL.Query().Get("namespace"))
+	out, err := s.deps.Rollouts.DiscoverTargets(r.Context(), namespace)
+	if err != nil {
+		status := rolloutStatusCode(err)
+		writeJSON(w, status, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) getRolloutWatch(w http.ResponseWriter, r *http.Request) {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -45,8 +46,59 @@ type WatchMutationResult struct {
 	Watch   *store.RolloutWatch `json:"watch,omitempty"`
 }
 
+type DiscoveryTargetContainer struct {
+	Name         string `json:"name"`
+	Image        string `json:"image"`
+	TrackedImage string `json:"tracked_image"`
+}
+
+type DiscoveryTarget struct {
+	Namespace  string                     `json:"namespace"`
+	Deployment string                     `json:"deployment"`
+	Service    string                     `json:"service,omitempty"`
+	Containers []DiscoveryTargetContainer `json:"containers"`
+}
+
+type DiscoveryResult struct {
+	Namespaces []string          `json:"namespaces"`
+	Targets    []DiscoveryTarget `json:"targets"`
+}
+
 func NewManager(st *store.Store, kc *kube.Client) *Manager {
 	return &Manager{store: st, kube: kc}
+}
+
+func (m *Manager) DiscoverTargets(ctx context.Context, namespace string) (*DiscoveryResult, error) {
+	targets, err := m.kube.ListManagedDeploymentTargets(ctx, namespace)
+	if err != nil {
+		return nil, err
+	}
+
+	namespaces := make([]string, 0, len(m.kube.Managed))
+	for ns := range m.kube.Managed {
+		namespaces = append(namespaces, ns)
+	}
+	sort.Strings(namespaces)
+
+	out := make([]DiscoveryTarget, 0, len(targets))
+	for _, target := range targets {
+		next := DiscoveryTarget{
+			Namespace:  target.Namespace,
+			Deployment: target.Deployment,
+			Service:    target.Service,
+			Containers: make([]DiscoveryTargetContainer, 0, len(target.Containers)),
+		}
+		for _, container := range target.Containers {
+			next.Containers = append(next.Containers, DiscoveryTargetContainer{
+				Name:         container.Name,
+				Image:        container.Image,
+				TrackedImage: container.TrackedImage,
+			})
+		}
+		out = append(out, next)
+	}
+
+	return &DiscoveryResult{Namespaces: namespaces, Targets: out}, nil
 }
 
 func (m *Manager) Register(ctx context.Context, req RegisterRequest) (*RegisterResult, error) {

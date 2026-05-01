@@ -4,16 +4,67 @@ import { EmptyState } from "../components/EmptyState";
 import { isAuthError } from "../lib/api";
 import { classNames, decodeError, formatTime } from "../lib/format";
 
+type RolloutTargetContainer = {
+	name: string;
+	image: string;
+	tracked_image?: string;
+};
+
+type RolloutTarget = {
+	namespace: string;
+	deployment: string;
+	service?: string;
+	containers: RolloutTargetContainer[];
+};
+
+type RolloutTargetCatalog = {
+	namespaces: string[];
+	targets: RolloutTarget[];
+};
+
+type RolloutWatchForm = {
+	namespace: string;
+	deployment: string;
+	service: string;
+	container: string;
+};
+
+const EMPTY_TARGET_CATALOG: RolloutTargetCatalog = { namespaces: [], targets: [] };
+const EMPTY_FORM: RolloutWatchForm = { namespace: "", deployment: "", service: "", container: "" };
+
+function defaultServiceForTarget(target: RolloutTarget | null) {
+	if (!target) {
+		return "";
+	}
+	return target.service || target.deployment;
+}
+
+function defaultContainerForTarget(target: RolloutTarget | null) {
+	if (!target || target.containers.length !== 1) {
+		return "";
+	}
+	return target.containers[0].name;
+}
+
 export function AutomationsPage({ requestJson, notify, onUnauthorized, showSnapshot }) {
-	const [watches, setWatches] = useState([]);
+	const [watches, setWatches] = useState<any[]>([]);
 	const [selectedId, setSelectedId] = useState("");
-	const [form, setForm] = useState({ namespace: "default", deployment: "", service: "", container: "" });
+	const [form, setForm] = useState<RolloutWatchForm>(EMPTY_FORM);
+	const [targetCatalog, setTargetCatalog] = useState<RolloutTargetCatalog>(EMPTY_TARGET_CATALOG);
 
 	const load = async () => {
 		try {
-			const response = await requestJson("/rollout-watches");
-			const next = response.watches || [];
+			const [response, catalog] = await Promise.all([
+				requestJson("/rollout-watches"),
+				requestJson("/rollout-watches/targets"),
+			]);
+			const next = (response?.watches || []) as any[];
+			const nextCatalog = (catalog || EMPTY_TARGET_CATALOG) as RolloutTargetCatalog;
 			setWatches(next);
+			setTargetCatalog({
+				namespaces: nextCatalog.namespaces || [],
+				targets: nextCatalog.targets || [],
+			});
 			if (!selectedId && next[0]) {
 				setSelectedId(next[0].id);
 			}
@@ -31,7 +82,75 @@ export function AutomationsPage({ requestJson, notify, onUnauthorized, showSnaps
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
+	useEffect(() => {
+		if (targetCatalog.namespaces.length === 0) {
+			return;
+		}
+
+		setForm((current) => {
+			const nextNamespace = targetCatalog.namespaces.includes(current.namespace)
+				? current.namespace
+				: targetCatalog.namespaces[0];
+			const namespaceTargets = targetCatalog.targets.filter((target) => target.namespace === nextNamespace);
+			const matchingTarget = namespaceTargets.find((target) => target.deployment === current.deployment) || namespaceTargets[0] || null;
+			const nextDeployment = matchingTarget ? matchingTarget.deployment : "";
+			const nextService = matchingTarget
+				? (current.deployment === nextDeployment && current.service ? current.service : defaultServiceForTarget(matchingTarget))
+				: "";
+			const hasCurrentContainer = matchingTarget
+				? matchingTarget.containers.some((container) => container.name === current.container)
+				: false;
+			const nextContainer = matchingTarget
+				? (hasCurrentContainer ? current.container : defaultContainerForTarget(matchingTarget))
+				: "";
+
+			if (
+				current.namespace === nextNamespace &&
+				current.deployment === nextDeployment &&
+				current.service === nextService &&
+				current.container === nextContainer
+			) {
+				return current;
+			}
+
+			return {
+				...current,
+				namespace: nextNamespace,
+				deployment: nextDeployment,
+				service: nextService,
+				container: nextContainer,
+			};
+		});
+	}, [targetCatalog]);
+
 	const selected = watches.find((watch) => watch.id === selectedId) || null;
+	const namespaceOptions = targetCatalog.namespaces;
+	const deploymentOptions = targetCatalog.targets.filter((target) => target.namespace === form.namespace);
+	const selectedTarget = deploymentOptions.find((target) => target.deployment === form.deployment) || null;
+	const containerOptions = selectedTarget?.containers || [];
+
+	const handleNamespaceChange = (namespace: string) => {
+		const namespaceTargets = targetCatalog.targets.filter((target) => target.namespace === namespace);
+		const firstTarget = namespaceTargets[0] || null;
+		setForm({
+			namespace,
+			deployment: firstTarget?.deployment || "",
+			service: defaultServiceForTarget(firstTarget),
+			container: defaultContainerForTarget(firstTarget),
+		});
+	};
+
+	const handleDeploymentChange = (deployment: string) => {
+		const target = deploymentOptions.find((item) => item.deployment === deployment) || null;
+		setForm((current) => ({
+			...current,
+			deployment,
+			service: defaultServiceForTarget(target),
+			container: target && target.containers.some((container) => container.name === current.container)
+				? current.container
+				: defaultContainerForTarget(target),
+		}));
+	};
 
 	const submit = async (event) => {
 		event.preventDefault();
@@ -75,19 +194,55 @@ export function AutomationsPage({ requestJson, notify, onUnauthorized, showSnaps
 					<div className="card-header">
 						<div>
 							<h3 className="card-title">Watch registration</h3>
-							<p className="card-subtitle">Register deployments that should be rechecked every minute for mutable-tag digest drift.</p>
+							<p className="card-subtitle">Select an existing deployment from a managed namespace and register a watch for mutable-tag digest drift.</p>
 						</div>
 					</div>
 					<form className="stack" onSubmit={submit}>
 						<div className="field-grid">
-							<label className="label">Namespace<input className="field" value={form.namespace} onChange={(event) => setForm((current) => ({ ...current, namespace: event.target.value }))} /></label>
-							<label className="label">Container<input className="field" value={form.container} onChange={(event) => setForm((current) => ({ ...current, container: event.target.value }))} /></label>
+							<label className="label">
+								Namespace
+								<select className="select" value={form.namespace} onChange={(event) => handleNamespaceChange(event.target.value)} disabled={namespaceOptions.length === 0}>
+									<option value="">{namespaceOptions.length === 0 ? "No managed namespaces" : "Select namespace"}</option>
+									{namespaceOptions.map((namespace) => (
+										<option key={namespace} value={namespace}>{namespace}</option>
+									))}
+								</select>
+							</label>
+							<label className="label">
+								Container
+								<select className="select" value={form.container} onChange={(event) => setForm((current) => ({ ...current, container: event.target.value }))} disabled={containerOptions.length === 0}>
+									<option value="">{containerOptions.length <= 1 ? "Auto-select when available" : "Select container"}</option>
+									{containerOptions.map((container) => (
+										<option key={container.name} value={container.name}>{container.name}</option>
+									))}
+								</select>
+							</label>
 						</div>
 						<div className="field-grid">
-							<label className="label">Deployment<input className="field" value={form.deployment} onChange={(event) => setForm((current) => ({ ...current, deployment: event.target.value }))} /></label>
+							<label className="label">
+								Deployment
+								<select className="select" value={form.deployment} onChange={(event) => handleDeploymentChange(event.target.value)} disabled={deploymentOptions.length === 0}>
+									<option value="">{deploymentOptions.length === 0 ? "No deployments in namespace" : "Select deployment"}</option>
+									{deploymentOptions.map((target) => (
+										<option key={`${target.namespace}/${target.deployment}`} value={target.deployment}>{target.deployment}</option>
+									))}
+								</select>
+							</label>
 							<label className="label">Service alias<input className="field" value={form.service} onChange={(event) => setForm((current) => ({ ...current, service: event.target.value }))} /></label>
 						</div>
-						<div className="button-row"><button className="button" type="submit">Save watch</button></div>
+						{selectedTarget ? (
+							<div className="mini-panel">
+								<div className="row-title">{selectedTarget.namespace}/{selectedTarget.deployment}</div>
+								<div className="row-subtitle">
+									{selectedTarget.containers.length === 0
+										? "No containers discovered"
+										: selectedTarget.containers.map((container) => `${container.name}: ${container.tracked_image || container.image}`).join(" | ")}
+								</div>
+							</div>
+						) : (
+							<EmptyState title="No deployment selected" copy="Choose a namespace to see existing deployments and autofill the rollout watch form." />
+						)}
+						<div className="button-row"><button className="button" type="submit" disabled={!form.namespace || !form.deployment}>Save watch</button></div>
 					</form>
 				</section>
 				<section className="stack">
