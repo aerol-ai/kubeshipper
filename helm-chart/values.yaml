@@ -57,8 +57,11 @@ rbac:
   #                         in managedNamespaces below. Recommended for prod.
   clusterWide: true
 
-  # Used only when clusterWide is false.
   # List every namespace kubeshipper is allowed to manage workloads in.
+  # Drives the MANAGED_NAMESPACES env var in all modes; also drives per-namespace
+  # Role+RoleBinding creation when clusterWide is false.
+  # Use ["*"] to allow ALL namespaces (requires clusterWide: true). The service
+  # account will list namespaces dynamically from the API at runtime.
   managedNamespaces:
     - default
 

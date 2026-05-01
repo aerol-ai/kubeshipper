@@ -31,10 +31,11 @@ func (c *Client) ListManagedDeploymentTargets(ctx context.Context, namespace str
 		}
 		namespaces = []string{ns}
 	} else {
-		for ns := range c.Managed {
-			namespaces = append(namespaces, ns)
+		all, err := c.ListAvailableNamespaces(ctx)
+		if err != nil {
+			return nil, err
 		}
-		sort.Strings(namespaces)
+		namespaces = all
 	}
 
 	out := make([]DeploymentTarget, 0)

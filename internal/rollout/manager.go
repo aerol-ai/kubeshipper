@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -74,11 +73,10 @@ func (m *Manager) DiscoverTargets(ctx context.Context, namespace string) (*Disco
 		return nil, err
 	}
 
-	namespaces := make([]string, 0, len(m.kube.Managed))
-	for ns := range m.kube.Managed {
-		namespaces = append(namespaces, ns)
+	namespaces, err := m.kube.ListAvailableNamespaces(ctx)
+	if err != nil {
+		return nil, err
 	}
-	sort.Strings(namespaces)
 
 	out := make([]DiscoveryTarget, 0, len(targets))
 	for _, target := range targets {

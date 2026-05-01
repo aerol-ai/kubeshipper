@@ -623,3 +623,25 @@ func TestResolveNamespace_NoManaged_Error(t *testing.T) {
 		t.Fatal("expected error when no namespaces configured")
 	}
 }
+
+func TestResolveNamespace_Wildcard_AcceptsAny(t *testing.T) {
+	c := &Client{Wildcard: true}
+	ns, err := c.ResolveNamespace("kube-system")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ns != "kube-system" {
+		t.Errorf("got %q, want kube-system", ns)
+	}
+}
+
+func TestResolveNamespace_Wildcard_EmptyDefaultsToDefault(t *testing.T) {
+	c := &Client{Wildcard: true}
+	ns, err := c.ResolveNamespace("")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ns != "default" {
+		t.Errorf("got %q, want default", ns)
+	}
+}

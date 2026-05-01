@@ -26,14 +26,25 @@ func main() {
 	managedRaw := os.Getenv("MANAGED_NAMESPACES")
 	if strings.TrimSpace(managedRaw) == "" {
 		log.Fatal("FATAL: MANAGED_NAMESPACES is not set. " +
-			"Set to a comma-separated list of namespaces this service may deploy into. " +
+			"Set to a comma-separated list of namespaces this service may deploy into, " +
+			"or \"*\" to allow all namespaces (requires cluster-wide RBAC). " +
 			"Example: MANAGED_NAMESPACES=default,production,staging")
 	}
 	managed := map[string]bool{}
+	wildcard := false
 	for _, n := range strings.Split(managedRaw, ",") {
-		if n = strings.TrimSpace(n); n != "" {
-			managed[n] = true
+		n = strings.TrimSpace(n)
+		if n == "" {
+			continue
 		}
+		if n == "*" {
+			wildcard = true
+			continue
+		}
+		managed[n] = true
+	}
+	if wildcard {
+		managed = nil
 	}
 
 	st, err := store.Open(dbPath)
@@ -42,7 +53,7 @@ func main() {
 	}
 	defer st.Close()
 
-	kubeCli, err := kube.New(managed)
+	kubeCli, err := kube.New(managed, wildcard)
 	if err != nil {
 		log.Fatalf("kube: %v", err)
 	}

@@ -32,6 +32,9 @@ metadata:
   labels:
     {{- include "kubeshipper.labels" . | nindent 4 }}
 rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
   - apiGroups: ["apps"]
     resources: ["deployments", "deployments/status"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
@@ -61,6 +64,9 @@ subjects:
     namespace: {{ .Release.Namespace }}
 
 {{- else }}
+{{- if has "*" .Values.rbac.managedNamespaces }}
+{{- fail "rbac.managedNamespaces=[\"*\"] requires rbac.clusterWide=true. Wildcard mode cannot create per-namespace Roles." }}
+{{- end }}
 # =============================================================================
 # Namespace-scoped mode: kubeshipper can only manage workloads in the
 # namespaces listed under rbac.managedNamespaces.
