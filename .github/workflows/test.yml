@@ -8,6 +8,8 @@ on:
       - "**.go"
       - "go.mod"
       - "go.sum"
+      - "web/**"
+      - ".github/workflows/test.yml"
   pull_request:
     branches:
       - main
@@ -15,6 +17,8 @@ on:
       - "**.go"
       - "go.mod"
       - "go.sum"
+      - "web/**"
+      - ".github/workflows/test.yml"
 
 jobs:
   test:
@@ -30,6 +34,19 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.15
+
+      - name: Install dashboard dependencies
+        working-directory: web
+        run: bun install --frozen-lockfile
+
+      - name: Build dashboard assets
+        working-directory: web
+        run: bun run build
 
       - name: Run tests
         run: go test -race -count=1 ./internal/...

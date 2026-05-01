@@ -13,6 +13,7 @@ export function DashboardShell(props) {
 			<aside className="shell-sidebar">
 				<div className="brand-mark">
 					<h1 className="brand-title">KubeShipper</h1>
+					<p className="brand-subtitle">React control deck running on the same binary that ships the cluster changes.</p>
 				</div>
 				<nav className="nav-list">
 					{NAV_ITEMS.map((item) => (
@@ -28,15 +29,17 @@ export function DashboardShell(props) {
 					))}
 				</nav>
 				<div className="sidebar-footer">
-					<div className="button-row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-						<span className="session-pill">Auth mode: {props.session.mode}</span>
-						<button className="ghost-button" type="button" onClick={props.logout}>
+					<div className="sidebar-session">
+						<div className="sidebar-session-meta">
+							<span className="session-pill">Auth mode: {props.session.mode}</span>
+							<p className="meta-copy">
+								Version <span className="mono">{props.session.version || "dev"}</span>
+							</p>
+						</div>
+						<button className="ghost-button sidebar-signout" type="button" onClick={props.logout}>
 							Sign out
 						</button>
 					</div>
-					<p className="meta-copy" style={{ marginTop: 14 }}>
-						Version <span className="mono">{props.session.version || "dev"}</span>
-					</p>
 				</div>
 			</aside>
 			<main className="shell-main">

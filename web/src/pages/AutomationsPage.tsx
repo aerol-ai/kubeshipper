@@ -46,6 +46,20 @@ function defaultContainerForTarget(target: RolloutTarget | null) {
 	return target.containers[0].name;
 }
 
+function watchTone(watch: any) {
+	if (!watch.enabled) {
+		return "warning";
+	}
+	if (watch.last_result === "error") {
+		return "danger";
+	}
+	return "success";
+}
+
+function watchTimestamp(watch: any) {
+	return watch.last_synced_at || watch.last_checked_at || watch.updated_at || watch.created_at;
+}
+
 export function AutomationsPage({ requestJson, notify, onUnauthorized, showSnapshot }) {
 	const [watches, setWatches] = useState<any[]>([]);
 	const [selectedId, setSelectedId] = useState("");
@@ -65,9 +79,12 @@ export function AutomationsPage({ requestJson, notify, onUnauthorized, showSnaps
 				namespaces: nextCatalog.namespaces || [],
 				targets: nextCatalog.targets || [],
 			});
-			if (!selectedId && next[0]) {
-				setSelectedId(next[0].id);
-			}
+			setSelectedId((current) => {
+				if (current && next.some((watch) => watch.id === current)) {
+					return current;
+				}
+				return next[0]?.id || "";
+			});
 		} catch (error) {
 			if (isAuthError(error)) {
 				onUnauthorized();
@@ -188,50 +205,51 @@ export function AutomationsPage({ requestJson, notify, onUnauthorized, showSnaps
 	};
 
 	return (
-		<div className="view-grid">
-			<div className="split-grid">
-				<section className="editor-card">
-					<div className="card-header">
-						<div>
-							<h3 className="card-title">Watch registration</h3>
-							<p className="card-subtitle">Select an existing deployment from a managed namespace and register a watch for mutable-tag digest drift.</p>
-						</div>
+		<div className="view-grid automation-layout">
+			<section className="surface automation-register-card">
+				<div className="card-header">
+					<div>
+						<h3 className="card-title">Watch registration</h3>
+						<p className="card-subtitle">Pick a managed deployment, confirm the tracked container, then save the watch. This stays compact because it is a setup step, not the main workspace.</p>
 					</div>
-					<form className="stack" onSubmit={submit}>
-						<div className="field-grid">
-							<label className="label">
-								Namespace
-								<select className="select" value={form.namespace} onChange={(event) => handleNamespaceChange(event.target.value)} disabled={namespaceOptions.length === 0}>
-									<option value="">{namespaceOptions.length === 0 ? "No managed namespaces" : "Select namespace"}</option>
-									{namespaceOptions.map((namespace) => (
-										<option key={namespace} value={namespace}>{namespace}</option>
-									))}
-								</select>
-							</label>
-							<label className="label">
-								Container
-								<select className="select" value={form.container} onChange={(event) => setForm((current) => ({ ...current, container: event.target.value }))} disabled={containerOptions.length === 0}>
-									<option value="">{containerOptions.length <= 1 ? "Auto-select when available" : "Select container"}</option>
-									{containerOptions.map((container) => (
-										<option key={container.name} value={container.name}>{container.name}</option>
-									))}
-								</select>
-							</label>
-						</div>
-						<div className="field-grid">
-							<label className="label">
-								Deployment
-								<select className="select" value={form.deployment} onChange={(event) => handleDeploymentChange(event.target.value)} disabled={deploymentOptions.length === 0}>
-									<option value="">{deploymentOptions.length === 0 ? "No deployments in namespace" : "Select deployment"}</option>
-									{deploymentOptions.map((target) => (
-										<option key={`${target.namespace}/${target.deployment}`} value={target.deployment}>{target.deployment}</option>
-									))}
-								</select>
-							</label>
-							<label className="label">Service alias<input className="field" value={form.service} onChange={(event) => setForm((current) => ({ ...current, service: event.target.value }))} /></label>
-						</div>
+				</div>
+				<form className="automation-register-form" onSubmit={submit}>
+					<div className="automation-register-grid">
+						<label className="label">
+							Namespace
+							<select className="select" value={form.namespace} onChange={(event) => handleNamespaceChange(event.target.value)} disabled={namespaceOptions.length === 0}>
+								<option value="">{namespaceOptions.length === 0 ? "No managed namespaces" : "Select namespace"}</option>
+								{namespaceOptions.map((namespace) => (
+									<option key={namespace} value={namespace}>{namespace}</option>
+								))}
+							</select>
+						</label>
+						<label className="label">
+							Deployment
+							<select className="select" value={form.deployment} onChange={(event) => handleDeploymentChange(event.target.value)} disabled={deploymentOptions.length === 0}>
+								<option value="">{deploymentOptions.length === 0 ? "No deployments in namespace" : "Select deployment"}</option>
+								{deploymentOptions.map((target) => (
+									<option key={`${target.namespace}/${target.deployment}`} value={target.deployment}>{target.deployment}</option>
+								))}
+							</select>
+						</label>
+						<label className="label">
+							Container
+							<select className="select" value={form.container} onChange={(event) => setForm((current) => ({ ...current, container: event.target.value }))} disabled={containerOptions.length === 0}>
+								<option value="">{containerOptions.length <= 1 ? "Auto-select when available" : "Select container"}</option>
+								{containerOptions.map((container) => (
+									<option key={container.name} value={container.name}>{container.name}</option>
+								))}
+							</select>
+						</label>
+						<label className="label">
+							Service alias
+							<input className="field" value={form.service} onChange={(event) => setForm((current) => ({ ...current, service: event.target.value }))} />
+						</label>
+					</div>
+					<div className="automation-register-footer">
 						{selectedTarget ? (
-							<div className="mini-panel">
+							<div className="mini-panel automation-register-preview">
 								<div className="row-title">{selectedTarget.namespace}/{selectedTarget.deployment}</div>
 								<div className="row-subtitle">
 									{selectedTarget.containers.length === 0
@@ -242,92 +260,112 @@ export function AutomationsPage({ requestJson, notify, onUnauthorized, showSnaps
 						) : (
 							<EmptyState title="No deployment selected" copy="Choose a namespace to see existing deployments and autofill the rollout watch form." />
 						)}
-						<div className="button-row"><button className="button" type="submit" disabled={!form.namespace || !form.deployment}>Save watch</button></div>
-					</form>
-				</section>
-				<section className="stack">
-					<div className="table-card">
-						<div className="card-header">
-							<div>
-								<h3 className="card-title">Watched deployments</h3>
-								<p className="card-subtitle">Enable, pause, sync, restart, or remove auto deployment watches.</p>
-							</div>
-							<button className="ghost-button" type="button" onClick={load}>Refresh</button>
+						<div className="automation-register-actions">
+							<button className="button" type="submit" disabled={!form.namespace || !form.deployment}>Save watch</button>
 						</div>
-						{watches.length === 0 ? (
-							<EmptyState title="No watches registered" copy="Create a watch here or include rolloutWatch in your next Helm install or upgrade payload." />
-						) : (
-							<div className="table-wrap">
-								<table className="table">
-									<thead>
-										<tr>
-											<th>Target</th>
-											<th>State</th>
-											<th>Latest digest</th>
-											<th>Actions</th>
-										</tr>
-									</thead>
-									<tbody>
-										{watches.map((watch) => (
-											<tr key={watch.id} onClick={() => setSelectedId(watch.id)}>
-												<td>
-													<span className="row-title">{watch.namespace}/{watch.deployment}</span>
-													<span className="row-subtitle">{watch.container || "single container"}</span>
-												</td>
-												<td>
-													<div className="inline-actions">
-														<span className={classNames("state-pill", watch.enabled ? "success" : "warning")}>{watch.enabled ? "enabled" : "paused"}</span>
-														<span className="tag-pill">{watch.last_result || "registered"}</span>
-													</div>
-												</td>
-												<td><span className="mono">{watch.latest_digest || "--"}</span></td>
-												<td>
-													<div className="inline-actions">
-														<button className="ghost-button" type="button" onClick={(event) => { event.stopPropagation(); runAction(`Sync ${watch.deployment}`, `/rollout-watches/${watch.id}/sync`, { method: "POST" }); }}>Sync latest</button>
-														<button className="subtle-button" type="button" onClick={(event) => { event.stopPropagation(); runAction(`Restart ${watch.deployment}`, `/rollout-watches/${watch.id}/restart`, { method: "POST" }); }}>Force rollout</button>
-														<button className="ghost-button" type="button" onClick={(event) => { event.stopPropagation(); runAction(`${watch.enabled ? "Disable" : "Enable"} ${watch.deployment}`, `/rollout-watches/${watch.id}/${watch.enabled ? "disable" : "enable"}`, { method: "POST" }); }}>{watch.enabled ? "Turn off" : "Turn on"}</button>
-														<button className="danger-button" type="button" onClick={(event) => { event.stopPropagation(); if (window.confirm(`Delete watch ${watch.namespace}/${watch.deployment}?`)) { runAction(`Delete ${watch.deployment}`, `/rollout-watches/${watch.id}`, { method: "DELETE" }); } }}>Delete</button>
-													</div>
-												</td>
-											</tr>
-										))}
-									</tbody>
-								</table>
-							</div>
-						)}
 					</div>
-					<div className="detail-card">
-						<div className="card-header">
-							<div>
-								<h3 className="card-title">Timeline</h3>
-								<p className="card-subtitle">Recent events recorded for the selected automation watch.</p>
-							</div>
-						</div>
-						{!selected ? (
-							<EmptyState title="No watch selected" copy="Click a watch in the table to inspect its timeline and current digest state." />
-						) : (
-							<div className="stack">
-								<div className="mini-panel">
-									<div className="row-title">{selected.namespace}/{selected.deployment}</div>
-									<div className="row-subtitle">Current image: <span className="mono">{selected.current_image || "--"}</span></div>
+				</form>
+			</section>
+
+			<section className="surface">
+				<div className="card-header">
+					<div>
+						<h3 className="card-title">Watched deployments</h3>
+						<p className="card-subtitle">Each watch is its own operational card. Status sits with the target, and actions stay underneath the content instead of getting shoved into a clipped table column.</p>
+					</div>
+					<button className="ghost-button" type="button" onClick={load}>Refresh</button>
+				</div>
+				{watches.length === 0 ? (
+					<EmptyState title="No watches registered" copy="Create a watch here or include rolloutWatch in your next Helm install or upgrade payload." />
+				) : (
+					<div className="watch-list">
+						{watches.map((watch) => (
+							<article
+								key={watch.id}
+								className={classNames("watch-card", selectedId === watch.id && "selected")}
+								onClick={() => setSelectedId(watch.id)}
+							>
+								<div className="watch-card-top">
+									<div className="watch-card-heading">
+										<div className="row-title">{watch.namespace}/{watch.deployment}</div>
+										<div className="row-subtitle">{watch.container || "Single container watch"}</div>
+									</div>
+									<div className="watch-card-pills">
+										<span className={classNames("state-pill", watchTone(watch))}>{watch.enabled ? "enabled" : "paused"}</span>
+										<span className="tag-pill">{watch.last_result || "registered"}</span>
+									</div>
 								</div>
-								<ul className="timeline-list">
-									{(selected.timeline || []).slice().reverse().map((entry, index) => (
-										<li className="timeline-item" key={`${entry.ts}-${index}`}>
-											<div className="timeline-top">
-												<strong>{entry.type}</strong>
-												<span className="timeline-time">{formatTime(entry.ts)}</span>
-											</div>
-											<div>{entry.message || entry.error || "No message"}</div>
-											{entry.latest_digest ? <div className="detail-meta">Latest digest: <span className="mono">{entry.latest_digest}</span></div> : null}
-										</li>
-									))}
-								</ul>
-							</div>
-						)}
+								<div className="watch-card-grid">
+									<div className="watch-card-section">
+										<div className="mini-label">Current image</div>
+										<div className="watch-card-code">{watch.current_image || watch.tracked_image || "--"}</div>
+									</div>
+									<div className="watch-card-section">
+										<div className="mini-label">Latest digest</div>
+										<div className="watch-card-code">{watch.latest_digest || "--"}</div>
+									</div>
+									<div className="watch-card-section">
+										<div className="mini-label">Checks / syncs</div>
+										<div className="watch-card-value">{watch.check_count || 0} checks · {watch.sync_count || 0} syncs</div>
+									</div>
+									<div className="watch-card-section">
+										<div className="mini-label">Last activity</div>
+										<div className="watch-card-value">{formatTime(watchTimestamp(watch))}</div>
+									</div>
+								</div>
+								<div className="watch-card-actions">
+									<button className="ghost-button" type="button" onClick={(event) => { event.stopPropagation(); runAction(`Sync ${watch.deployment}`, `/rollout-watches/${watch.id}/sync`, { method: "POST" }); }}>Sync latest</button>
+									<button className="subtle-button" type="button" onClick={(event) => { event.stopPropagation(); runAction(`Restart ${watch.deployment}`, `/rollout-watches/${watch.id}/restart`, { method: "POST" }); }}>Force rollout</button>
+									<button className="ghost-button" type="button" onClick={(event) => { event.stopPropagation(); runAction(`${watch.enabled ? "Disable" : "Enable"} ${watch.deployment}`, `/rollout-watches/${watch.id}/${watch.enabled ? "disable" : "enable"}`, { method: "POST" }); }}>{watch.enabled ? "Turn off" : "Turn on"}</button>
+									<button className="danger-button" type="button" onClick={(event) => { event.stopPropagation(); if (window.confirm(`Delete watch ${watch.namespace}/${watch.deployment}?`)) { runAction(`Delete ${watch.deployment}`, `/rollout-watches/${watch.id}`, { method: "DELETE" }); } }}>Delete</button>
+								</div>
+							</article>
+						))}
 					</div>
-				</section>
-			</div>
+				)}
+			</section>
+
+			<section className="surface">
+				<div className="card-header">
+					<div>
+						<h3 className="card-title">Timeline</h3>
+						<p className="card-subtitle">Recent events for the selected watch, with the current image pinned above the log.</p>
+					</div>
+				</div>
+				{!selected ? (
+					<EmptyState title="No watch selected" copy="Select a watched deployment to inspect its timeline and current digest state." />
+				) : (
+					<div className="stack">
+						<div className="detail-grid">
+							<div className="mini-panel">
+								<div className="mini-label">Selected target</div>
+								<div className="mini-value">{selected.namespace}/{selected.deployment}</div>
+								<div className="detail-meta">{selected.container || "Single container watch"}</div>
+							</div>
+							<div className="mini-panel">
+								<div className="mini-label">Current image</div>
+								<div className="watch-card-code">{selected.current_image || "--"}</div>
+							</div>
+							<div className="mini-panel">
+								<div className="mini-label">Latest digest</div>
+								<div className="watch-card-code">{selected.latest_digest || "--"}</div>
+							</div>
+						</div>
+						<ul className="timeline-list">
+							{(selected.timeline || []).slice().reverse().map((entry, index) => (
+								<li className="timeline-item" key={`${entry.ts}-${index}`}>
+									<div className="timeline-top">
+										<strong>{entry.type}</strong>
+										<span className="timeline-time">{formatTime(entry.ts)}</span>
+									</div>
+									<div>{entry.message || entry.error || "No message"}</div>
+									{entry.latest_digest ? <div className="detail-meta">Latest digest: <span className="mono">{entry.latest_digest}</span></div> : null}
+								</li>
+							))}
+						</ul>
+					</div>
+				)}
+			</section>
 		</div>
 	);
 }

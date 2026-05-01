@@ -309,16 +309,18 @@ button {
 .shell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 232px minmax(0, 1fr) 320px;
+  grid-template-columns: 232px minmax(0, 1fr) minmax(280px, 320px);
   gap: 16px;
   padding: 16px;
   background: var(--bg);
+  align-items: start;
 }
 
 .shell-sidebar,
 .shell-main,
 .shell-console {
   padding: 16px;
+  min-width: 0;
 }
 
 .shell-sidebar {
@@ -408,6 +410,21 @@ button {
   border: 1px solid var(--line);
   color: var(--text-soft);
   font-size: 12px;
+}
+
+.sidebar-session {
+  display: grid;
+  gap: 12px;
+}
+
+.sidebar-session-meta {
+  display: grid;
+  gap: 10px;
+}
+
+.sidebar-signout {
+  width: 100%;
+  justify-content: center;
 }
 
 .sidebar-footer .meta-copy {
@@ -705,6 +722,119 @@ button {
   grid-template-columns: 1fr;
 }
 
+.automation-layout {
+  align-content: start;
+}
+
+.automation-register-card {
+  padding-bottom: 16px;
+}
+
+.automation-register-form {
+  display: grid;
+  gap: 14px;
+}
+
+.automation-register-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.automation-register-footer {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.automation-register-preview {
+  min-height: 0;
+}
+
+.automation-register-actions {
+  display: flex;
+  align-items: end;
+  justify-content: flex-end;
+}
+
+.watch-list {
+  display: grid;
+  gap: 12px;
+}
+
+.watch-card {
+  padding: 16px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line);
+  background: var(--panel);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+}
+
+.watch-card:hover {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow);
+}
+
+.watch-card.selected {
+  border-color: rgba(15, 118, 110, 0.28);
+  box-shadow: 0 0 0 1px rgba(15, 118, 110, 0.12);
+  background: #fcfffe;
+}
+
+.watch-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.watch-card-heading,
+.watch-card-section {
+  min-width: 0;
+}
+
+.watch-card-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.watch-card-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 14px;
+}
+
+.watch-card-section {
+  display: grid;
+  gap: 4px;
+}
+
+.watch-card-value {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.watch-card-code {
+  font-family: "JetBrains Mono", "SFMono-Regular", ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-soft);
+  word-break: break-word;
+}
+
+.watch-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .checkbox-row {
   display: flex;
   align-items: center;
@@ -846,6 +976,7 @@ button {
   top: 16px;
   align-self: start;
   max-height: calc(100vh - 32px);
+  overflow: hidden;
 }
 
 .shell-console .console-title {
@@ -958,6 +1089,11 @@ button {
   .detail-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .automation-register-grid,
+  .watch-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 960px) {
@@ -980,6 +1116,16 @@ button {
   .detail-grid,
   .surface-grid {
     grid-template-columns: 1fr;
+  }
+
+  .automation-register-grid,
+  .automation-register-footer,
+  .watch-card-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .automation-register-actions {
+    justify-content: flex-start;
   }
 
   .shell-sidebar {
@@ -1007,7 +1153,8 @@ button {
   .card-header,
   .timeline-top,
   .metadata-top,
-  .console-header {
+  .console-header,
+  .watch-card-top {
     flex-direction: column;
     align-items: flex-start;
   }
