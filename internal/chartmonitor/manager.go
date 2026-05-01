@@ -5,15 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/aerol-ai/kubeshipper/internal/helm"
+	"github.com/aerol-ai/kubeshipper/internal/ociregistry"
 	"github.com/aerol-ai/kubeshipper/internal/store"
-
-	"helm.sh/helm/v3/pkg/registry"
 )
 
 var ErrConfigNotFound = errors.New("chart release config not found")
@@ -266,12 +263,18 @@ func (m *Manager) currentVersion(ctx context.Context, release, namespace string,
 }
 
 func latestOCIVersion(source *helm.ChartSource) (string, error) {
-	regClient, err := registry.NewClient(
-		registry.ClientOptDebug(false),
-		registry.ClientOptCredentialsFile(filepath.Join(os.TempDir(), "kubeshipper-registry-creds.json")),
-	)
+	regClient, err := ociregistry.NewClient()
 	if err != nil {
 		return "", fmt.Errorf("registry client: %w", err)
+	}
+	if logout, err := ociregistry.LoginIfConfigured(regClient, source.URL, &ociregistry.Auth{
+		Username: chartSourceUsername(source),
+		Password: chartSourcePassword(source),
+		Token:    chartSourceToken(source),
+	}); err != nil {
+		return "", fmt.Errorf("oci login: %w", err)
+	} else if logout != nil {
+		defer logout()
 	}
 	tags, err := regClient.Tags(strings.TrimPrefix(source.URL, "oci://"))
 	if err != nil {
@@ -294,7 +297,6 @@ func decodeSource(raw string) (*helm.ChartSource, error) {
 func encodeStoredSource(source *helm.ChartSource, priorAuthConfigured bool) (string, bool, error) {
 	sanitized := cloneSource(source)
 	authConfigured := priorAuthConfigured || hasAuth(source)
-	sanitized.Auth = nil
 	sanitized.TgzB64 = ""
 	body, err := json.Marshal(sanitized)
 	if err != nil {
@@ -320,6 +322,27 @@ func hasAuth(source *helm.ChartSource) bool {
 		return false
 	}
 	return source.Auth.Username != "" || source.Auth.Password != "" || source.Auth.Token != "" || source.Auth.SshKeyPem != ""
+}
+
+func chartSourceUsername(source *helm.ChartSource) string {
+	if source == nil || source.Auth == nil {
+		return ""
+	}
+	return source.Auth.Username
+}
+
+func chartSourcePassword(source *helm.ChartSource) string {
+	if source == nil || source.Auth == nil {
+		return ""
+	}
+	return source.Auth.Password
+}
+
+func chartSourceToken(source *helm.ChartSource) string {
+	if source == nil || source.Auth == nil {
+		return ""
+	}
+	return source.Auth.Token
 }
 
 func emitEvent(emit func(store.Event), phase, message string) {

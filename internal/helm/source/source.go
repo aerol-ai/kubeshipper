@@ -28,7 +28,6 @@ type Auth struct {
 }
 
 // Fetch resolves any supported chart source into an in-memory *chart.Chart.
-// Per-request credentials live on the request and are never persisted.
 func Fetch(req *Req) (*chart.Chart, error) {
 	if req == nil {
 		return nil, fmt.Errorf("chart source required")

@@ -6,11 +6,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/aerol-ai/kubeshipper/internal/ociregistry"
+
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/cli"
-	"helm.sh/helm/v3/pkg/registry"
 )
 
 func fetchOCI(s *Req) (*chart.Chart, error) {
@@ -22,21 +23,19 @@ func fetchOCI(s *Req) (*chart.Chart, error) {
 	}
 
 	settings := cli.New()
-	regClient, err := registry.NewClient(
-		registry.ClientOptDebug(false),
-		registry.ClientOptCredentialsFile(filepath.Join(os.TempDir(), "kubeshipper-registry-creds.json")),
-	)
+	regClient, err := ociregistry.NewClient()
 	if err != nil {
 		return nil, fmt.Errorf("registry client: %w", err)
 	}
 
-	if s.Auth != nil && s.Auth.Username != "" {
-		host := strings.TrimPrefix(s.URL, "oci://")
-		host = strings.SplitN(host, "/", 2)[0]
-		if err := regClient.Login(host, registry.LoginOptBasicAuth(s.Auth.Username, s.Auth.Password)); err != nil {
-			return nil, fmt.Errorf("oci login: %w", err)
-		}
-		defer func() { _ = regClient.Logout(host) }()
+	if logout, err := ociregistry.LoginIfConfigured(regClient, s.URL, &ociregistry.Auth{
+		Username: authUsername(s.Auth),
+		Password: authPassword(s.Auth),
+		Token:    authToken(s.Auth),
+	}); err != nil {
+		return nil, fmt.Errorf("oci login: %w", err)
+	} else if logout != nil {
+		defer logout()
 	}
 
 	cfg := &action.Configuration{RegistryClient: regClient}
@@ -60,4 +59,25 @@ func fetchOCI(s *Req) (*chart.Chart, error) {
 	}
 	_ = os.Remove(tgzPath)
 	return c, nil
+}
+
+func authUsername(auth *Auth) string {
+	if auth == nil {
+		return ""
+	}
+	return auth.Username
+}
+
+func authPassword(auth *Auth) string {
+	if auth == nil {
+		return ""
+	}
+	return auth.Password
+}
+
+func authToken(auth *Auth) string {
+	if auth == nil {
+		return ""
+	}
+	return auth.Token
 }

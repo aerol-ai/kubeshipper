@@ -7,9 +7,18 @@ import { isAuthError } from "../lib/api";
 import { classNames, decodeError, formatTime } from "../lib/format";
 import { fetchReleaseBundle } from "../lib/releases";
 
+type ReleaseSourceFormState = {
+	url: string;
+	version: string;
+	monitorEnabled: boolean;
+	username: string;
+	password: string;
+	token: string;
+};
+
 function sourceFormFromBundle(bundle) {
 	if (!bundle) {
-		return { url: "", version: "", monitorEnabled: false };
+		return { url: "", version: "", monitorEnabled: false, username: "", password: "", token: "" };
 	}
 	const version = bundle.release?.chart_version || bundle.monitor?.current_version || "";
 	if (bundle.source?.type === "oci") {
@@ -17,12 +26,18 @@ function sourceFormFromBundle(bundle) {
 			url: bundle.source.url || "",
 			version: bundle.source.version || version,
 			monitorEnabled: Boolean(bundle.monitor?.monitor_enabled),
+			username: "",
+			password: "",
+			token: "",
 		};
 	}
 	return {
 		url: "",
 		version,
 		monitorEnabled: Boolean(bundle.monitor?.monitor_enabled),
+		username: "",
+		password: "",
+		token: "",
 	};
 }
 
@@ -65,7 +80,14 @@ export function ReleasesPage({ requestJson, requestText, notify, onUnauthorized,
 	const deferredSearch = useDeferredValue(filters.search);
 	const [selectedKey, setSelectedKey] = useState("");
 	const [detailState, setDetailState] = useState({ loading: false, bundle: null });
-	const [sourceForm, setSourceForm] = useState({ url: "", version: "", monitorEnabled: false });
+	const [sourceForm, setSourceForm] = useState<ReleaseSourceFormState>({
+		url: "",
+		version: "",
+		monitorEnabled: false,
+		username: "",
+		password: "",
+		token: "",
+	});
 	const [activeAction, setActiveAction] = useState("");
 
 	const releaseParam = searchParams.get("release") || "";
@@ -154,6 +176,7 @@ export function ReleasesPage({ requestJson, requestText, notify, onUnauthorized,
 	const diffEntries = bundle?.diff?.entries || [];
 	const monitor = bundle?.monitor || null;
 	const source = bundle?.source || null;
+	const sourceAuthConfigured = Boolean(source?.auth_configured || monitor?.auth_configured);
 	const currentVersion = bundle?.release?.chart_version || monitor?.current_version || "";
 	const latestVersion = monitor?.latest_version || "";
 	const updateAvailable = Boolean(currentVersion && latestVersion && currentVersion !== latestVersion);
@@ -166,6 +189,11 @@ export function ReleasesPage({ requestJson, requestText, notify, onUnauthorized,
 		}
 		setActiveAction("source");
 		try {
+			const auth: { username?: string; password?: string; token?: string } = {};
+			if (sourceForm.username.trim()) auth.username = sourceForm.username.trim();
+			if (sourceForm.password.trim()) auth.password = sourceForm.password.trim();
+			if (sourceForm.token.trim()) auth.token = sourceForm.token.trim();
+
 			const response = await requestJson(
 				`/charts/${encodeURIComponent(bundle.release.name)}/source?namespace=${encodeURIComponent(bundle.namespace)}`,
 				{
@@ -175,6 +203,7 @@ export function ReleasesPage({ requestJson, requestText, notify, onUnauthorized,
 							type: "oci",
 							url: sourceForm.url.trim(),
 							version: sourceForm.version.trim(),
+							...(Object.keys(auth).length > 0 ? { auth } : {}),
 						},
 						monitorEnabled: sourceForm.monitorEnabled,
 					}),
@@ -409,15 +438,15 @@ export function ReleasesPage({ requestJson, requestText, notify, onUnauthorized,
 														{sourceIsOCI ? "oci ready" : "manual only"}
 													</span>
 												</div>
-												<div className="detail-meta">
-													Stored version {source.version || "--"} · latest observed {latestVersion || "--"} · last sync {formatTime(monitor?.last_synced_at)}
+											<div className="detail-meta">
+												Stored version {source.version || "--"} · latest observed {latestVersion || "--"} · last sync {formatTime(monitor?.last_synced_at)}
+											</div>
+											{sourceAuthConfigured ? (
+												<div className="detail-meta" style={{ marginTop: 8 }}>
+													Stored OCI credentials are configured for this release. Secrets stay server-side and are not echoed back into the browser form.
 												</div>
-												{source.auth_configured ? (
-													<div className="detail-meta" style={{ marginTop: 8 }}>
-														Credentials were used previously, but KubeShipper does not persist them. Automatic checks only work if the OCI registry is reachable without re-entering credentials.
-													</div>
-												) : null}
-												{monitor?.last_error ? <div className="state-pill danger" style={{ marginTop: 10 }}>{monitor.last_error}</div> : null}
+											) : null}
+											{monitor?.last_error ? <div className="state-pill danger" style={{ marginTop: 10 }}>{monitor.last_error}</div> : null}
 											</div>
 										) : (
 											<EmptyState title="No source metadata stored" copy="Attach the release's OCI chart source once so this page can check for newer chart versions and sync them automatically." />
@@ -433,6 +462,23 @@ export function ReleasesPage({ requestJson, requestText, notify, onUnauthorized,
 													Tracked version
 													<input className="field" value={sourceForm.version} onChange={(event) => setSourceForm((current) => ({ ...current, version: event.target.value }))} />
 												</label>
+											</div>
+											<div className="field-grid three">
+												<label className="label">
+													Registry username
+													<input className="field" placeholder="github-username" value={sourceForm.username} onChange={(event) => setSourceForm((current) => ({ ...current, username: event.target.value }))} />
+												</label>
+												<label className="label">
+													Password
+													<input className="field" type="password" value={sourceForm.password} onChange={(event) => setSourceForm((current) => ({ ...current, password: event.target.value }))} />
+												</label>
+												<label className="label">
+													Token / PAT
+													<input className="field" type="password" value={sourceForm.token} onChange={(event) => setSourceForm((current) => ({ ...current, token: event.target.value }))} />
+												</label>
+											</div>
+											<div className="detail-meta">
+												Leave credential fields blank to keep stored OCI credentials. For GHCR, use your GitHub username plus a PAT in either Password or Token.
 											</div>
 											<div className="checkbox-row">
 												<label className="checkbox"><input type="checkbox" checked={sourceForm.monitorEnabled} onChange={(event) => setSourceForm((current) => ({ ...current, monitorEnabled: event.target.checked }))} />Enable background chart monitor</label>

@@ -176,11 +176,15 @@ func (s *Server) hydrateChartReleaseResponse(out *helm.GetResp, release, namespa
 }
 
 func (s *Server) persistChartReleaseSource(release, namespace string, source *helm.ChartSource) (*store.ChartReleaseConfig, error) {
-	raw, authConfigured, err := encodeStoredChartSource(source)
+	merged, err := s.mergeStoredChartReleaseSource(release, namespace, source)
 	if err != nil {
 		return nil, err
 	}
-	return s.deps.Store.UpsertChartReleaseConfig(release, namespace, raw, source.Type, authConfigured, source.Version)
+	raw, authConfigured, err := encodeStoredChartSource(merged)
+	if err != nil {
+		return nil, err
+	}
+	return s.deps.Store.UpsertChartReleaseConfig(release, namespace, raw, merged.Type, authConfigured, merged.Version)
 }
 
 func (s *Server) syncStoredChartReleaseVersion(ctx context.Context, release, namespace string) error {
@@ -277,11 +281,8 @@ func validateStoredOCIChartSource(source *helm.ChartSource) error {
 
 func encodeStoredChartSource(source *helm.ChartSource) (string, bool, error) {
 	cloned := *source
-	authConfigured := false
-	if source.Auth != nil {
-		authConfigured = source.Auth.Username != "" || source.Auth.Password != "" || source.Auth.Token != "" || source.Auth.SshKeyPem != ""
-	}
-	cloned.Auth = nil
+	cloned.Auth = cloneChartAuth(source.Auth)
+	authConfigured := chartSourceAuthConfigured(&cloned)
 	cloned.TgzB64 = ""
 	body, err := json.Marshal(&cloned)
 	if err != nil {
@@ -296,6 +297,89 @@ func decodeStoredChartSource(raw string) (*helm.ChartSource, error) {
 		return nil, err
 	}
 	return &source, nil
+}
+
+func (s *Server) mergeStoredChartReleaseSource(release, namespace string, source *helm.ChartSource) (*helm.ChartSource, error) {
+	if source == nil {
+		return nil, nil
+	}
+	merged := *source
+
+	record, err := s.deps.Store.GetChartReleaseConfig(release, namespace)
+	if err != nil || record == nil || record.SourceJSON == "" {
+		if err != nil {
+			return nil, err
+		}
+		merged.Auth = cloneChartAuth(source.Auth)
+		return &merged, nil
+	}
+
+	prior, err := decodeStoredChartSource(record.SourceJSON)
+	if err != nil || prior == nil {
+		if err != nil {
+			return nil, err
+		}
+		merged.Auth = cloneChartAuth(source.Auth)
+		return &merged, nil
+	}
+
+	merged.Auth = mergeChartAuth(prior.Auth, source.Auth)
+	return &merged, nil
+}
+
+func mergeChartAuth(prior, next *helm.Auth) *helm.Auth {
+	if !chartAuthProvided(next) {
+		return cloneChartAuth(prior)
+	}
+
+	merged := cloneChartAuth(prior)
+	if merged == nil {
+		merged = &helm.Auth{}
+	}
+
+	if next == nil {
+		return merged
+	}
+	if strings.TrimSpace(next.Username) != "" {
+		merged.Username = strings.TrimSpace(next.Username)
+	}
+	if strings.TrimSpace(next.Password) != "" {
+		merged.Password = strings.TrimSpace(next.Password)
+		merged.Token = ""
+	}
+	if strings.TrimSpace(next.Token) != "" {
+		merged.Token = strings.TrimSpace(next.Token)
+		merged.Password = ""
+	}
+	if strings.TrimSpace(next.SshKeyPem) != "" {
+		merged.SshKeyPem = next.SshKeyPem
+	}
+	if !chartAuthProvided(merged) {
+		return nil
+	}
+	return merged
+}
+
+func cloneChartAuth(auth *helm.Auth) *helm.Auth {
+	if auth == nil {
+		return nil
+	}
+	cloned := *auth
+	return &cloned
+}
+
+func chartSourceAuthConfigured(source *helm.ChartSource) bool {
+	return source != nil && chartAuthProvided(source.Auth)
+}
+
+func chartAuthProvided(auth *helm.Auth) bool {
+	if auth == nil {
+		return false
+	}
+	return strings.TrimSpace(auth.Username) != "" ||
+		strings.TrimSpace(auth.Password) != "" ||
+		strings.TrimSpace(auth.Token) != "" ||
+		strings.TrimSpace(auth.SshKeyPem) != ""
 }
 
 func chartMonitorStatusCode(err error) int {
